@@ -226,7 +226,7 @@
                 </div>
                 <div class="table-container" style="margin-top:12px">
                     <table>
-                        <thead><tr><th>#</th><th>��سم القاعة</th><th>إجراءات</th></tr></thead>
+                        <thead><tr><th>#</th><th>اسم القاعة</th><th>إجراءات</th></tr></thead>
                         <tbody id="roomsTable"></tbody>
                     </table>
                 </div>
@@ -437,6 +437,47 @@ let settings = {
     subjectPriorityForReserve: false
 };
 
+/* ======= دوال تنسيق التاريخ/الوقت بأرقام لاتينية واضحة ======= */
+/* تحويل أي أرقام عربية-هندية أو Extended Arabic-Indic إلى أرقام لاتينية 0-9 (للأمان قبل الطباعة) */
+function latinizeDigits(str) {
+    if (str === null || str === undefined) return str;
+    return String(str)
+        .replace(/[\u0660-\u0669]/g, ch => String(ch.charCodeAt(0) - 0x0660))
+        .replace(/[\u06F0-\u06F9]/g, ch => String(ch.charCodeAt(0) - 0x06F0));
+}
+
+/* تنسيق تاريخ للعرض: مدخل يمكن أن يكون 'YYYY-MM-DD' أو Date -> يعطي "اسماليوم dd/mm/yyyy" مع أرقام لاتينية */
+function formatDateForDisplay(dateInput) {
+    let d;
+    if (!dateInput) d = new Date();
+    else if (dateInput instanceof Date) d = new Date(dateInput.getTime());
+    else {
+        // نضمن إنشاء التاريخ بدون تحويل المنطقة بشكل خاطئ
+        d = new Date(dateInput + 'T00:00:00');
+    }
+    // ضبط الـ timezone لطريقة عرض اليومية
+    d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+    const days = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+    const dayName = days[d.getDay()];
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const yyyy = d.getFullYear();
+    return `${dayName} ${dd}/${mm}/${yyyy}`; // أرقام لاتينية بوضوح
+}
+
+/* تنسيق طابع زمني (ISO أو Date) إلى dd/mm/yyyy HH:MM بأرقام لاتينية */
+function formatDateTimeForDisplay(dateLike) {
+    const d = (dateLike instanceof Date) ? new Date(dateLike.getTime()) : new Date(dateLike);
+    if (isNaN(d)) return String(dateLike);
+    d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const yyyy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2,'0');
+    const min = String(d.getMinutes()).padStart(2,'0');
+    return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+}
+
 /* =============== تهيئة =============== */
 document.addEventListener('DOMContentLoaded', () => {
     const today = new Date();
@@ -490,6 +531,14 @@ function loadFromStorage() {
         updateSwitchVisual('sAvoidSameRoom', document.getElementById('optAvoidSameRoom').checked);
         updateSwitchVisual('sBalanceByAssigned', document.getElementById('optBalanceByAssigned').checked);
         updateSwitchVisual('sSubjectPriority', document.getElementById('optSubjectPriority').checked);
+
+        // إذا كانت هناك examDays محفوظة بصيغ قديمة، نضمن أن displayDate يعاد حسابها بأرقام لاتينية
+        examDays = (examDays || []).map(ed => {
+            if (ed && ed.date) {
+                return Object.assign({}, ed, { displayDate: formatDateForDisplay(ed.date) });
+            }
+            return ed;
+        });
     } catch (e) { console.error("خطأ في تحميل البيانات:", e); }
 }
 
@@ -876,11 +925,9 @@ function addExamDay(date, period, subjects, rCount, fromImport=false) {
         if (!fromImport) alert('يوجد اختبار في نفس اليوم والفترة.');
         return;
     }
-    const dateObj = new Date(date);
-    dateObj.setMinutes(dateObj.getMinutes() + dateObj.getTimezoneOffset());
-    const days = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
-    const dayName = days[dateObj.getDay()];
-    examDays.push({ id: Date.now()+Math.random(), date: date, displayDate: dayName + ' ' + dateObj.toLocaleDateString('ar-EG'), period: period, subjects: subjects, roomCount: roomCount });
+    // استخدم دالة التنسيق المخصصة لضمان أرقام لاتينية
+    const displayDateStr = formatDateForDisplay(date);
+    examDays.push({ id: Date.now()+Math.random(), date: date, displayDate: displayDateStr, period: period, subjects: subjects, roomCount: roomCount });
     if (!fromImport) { updateExamsTable(); saveToStorage(); populateDaySelectors(); }
 }
 
@@ -1079,7 +1126,7 @@ function displayResults() {
         reserveHtml = '<div class="table-container"><table><thead><tr><th>التاريخ</th><th>الفترة</th><th>الأساتذة</th><th>إجراءات</th></tr></thead><tbody>';
         reserves.sort((a,b)=> new Date(a.date)-new Date(b.date)).forEach((r, idx)=>{
             const day = examDays.find(d=>d.date===r.date && d.period===r.period);
-            const display = day ? day.displayDate : r.date;
+            const display = day ? day.displayDate : formatDateForDisplay(r.date);
             reserveHtml += `<tr><td>${display}</td><td>${r.period}</td><td>${r.teachers.map(t=>t.name).join('، ')}</td><td><button class="btn" onclick="printReservesByIndex(${idx})"><i class="fas fa-print"></i> طباعة</button></td></tr>`;
         });
         reserveHtml += '</tbody></table></div>';
@@ -1141,6 +1188,23 @@ function activateDragAndDrop() {
     });
 }
 
+/* =============== دالة طباعة موحّدة مع تحويل الأرقام قبل الطباعة =============== */
+function printWindow(win) {
+    try {
+        win.document.close();
+        try {
+            if (win.document && win.document.body && win.document.body.innerHTML) {
+                win.document.body.innerHTML = latinizeDigits(win.document.body.innerHTML);
+            }
+        } catch (innerErr) {
+            console.warn('latinizeDigits failed on print window body:', innerErr);
+        }
+    } catch (err) {
+        console.warn('Error while preparing print window:', err);
+    }
+    win.print();
+}
+
 /* =============== طباعة وتصدير =============== */
 function exportToExcel() {
     if (!schedule.length) return alert('لا يوجد جدول لتصديره.');
@@ -1150,7 +1214,7 @@ function exportToExcel() {
         data.push([]); data.push(['الأساتذة الاحتياط']); data.push(['التاريخ','الفترة','الأساتذة']);
         reserves.forEach(r => {
             const day = examDays.find(d=>d.date===r.date && d.period===r.period);
-            const display = day ? day.displayDate : r.date;
+            const display = day ? day.displayDate : formatDateForDisplay(r.date);
             data.push([display,r.period,r.teachers.map(t=>t.name).join('، ')]);
         });
     }
@@ -1167,10 +1231,11 @@ function printSchedule() {
     win.document.write('</tbody></table>');
     if (reserves.length) {
         win.document.write('<h2>الأساتذة الاحتياط</h2><table><thead><tr><th>التاريخ</th><th>الفترة</th><th>الأساتذة</th></tr></thead><tbody>');
-        reserves.forEach(r=>{ const day=examDays.find(d=>d.date===r.date && d.period===r.period); const display=day?day.displayDate:r.date; win.document.write(`<tr><td>${display}</td><td>${r.period}</td><td>${r.teachers.map(t=>t.name).join('، ')}</td></tr>`); });
+        reserves.forEach(r=>{ const day=examDays.find(d=>d.date===r.date && d.period===r.period); const display=day?day.displayDate:formatDateForDisplay(r.date); win.document.write(`<tr><td>${display}</td><td>${r.period}</td><td>${r.teachers.map(t=>t.name).join('، ')}</td></tr>`); });
         win.document.write('</tbody></table>');
     }
-    win.document.write('</body></html>'); win.document.close(); win.print();
+    win.document.write('</body></html>');
+    printWindow(win);
 }
 
 function printTeacherSchedule(teacherId) {
@@ -1180,9 +1245,11 @@ function printTeacherSchedule(teacherId) {
     win.document.write(`<html><head><meta charset="utf-8"><title>استدعاء - ${teacher.name}</title><style>body{font-family:Tahoma;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:8px;text-align:center}</style></head><body><h2 style="text-align:center">استدعاء للحراسة - ${teacher.name}</h2><table><thead><tr><th>التاريخ</th><th>الفترة</th><th>القاعة</th></tr></thead><tbody>`);
     teacher.assignments.sort((a,b)=> new Date(a.date)-new Date(b.date) || (a.period==='صباح'? -1:1)).forEach(a=>{
         const day = examDays.find(d=>d.date===a.date && d.period===a.period);
-        win.document.write(`<tr><td>${day?day.displayDate:a.date}</td><td>${a.period}</td><td>${a.room === 'احتياط' ? '<b>احتياط</b>' : a.room}</td></tr>`);
+        const display = day ? day.displayDate : formatDateForDisplay(a.date);
+        win.document.write(`<tr><td>${display}</td><td>${a.period}</td><td>${a.room === 'احتياط' ? '<b>احتياط</b>' : a.room}</td></tr>`);
     });
-    win.document.write('</tbody></table><p style="text-align:left;margin-top:30px">إمضاء المدير</p></body></html>'); win.document.close(); win.print();
+    win.document.write('</tbody></table><p style="text-align:left;margin-top:30px">إمضاء المدير</p></body></html>');
+    printWindow(win);
 }
 
 function printAllIndividualSchedules(){
@@ -1192,17 +1259,21 @@ function printAllIndividualSchedules(){
     win.document.write(`<html><head><meta charset="utf-8"><title>جميع الجداول الفردية</title><style>body{font-family:Tahoma;direction:rtl} .teacher{border:1px solid #000;padding:10px;margin:10px;width:45%;display:inline-block;vertical-align:top;page-break-inside:avoid}table{width:100%;border-collapse:collapse}th,td{border:1px solid #000;padding:6px;text-align:center}</style></head><body>`);
     assignedTeachers.forEach(t=>{
         win.document.write(`<div class="teacher"><h3>${t.name}</h3><table><tr><th>التاريخ</th><th>الفترة</th><th>القاعة</th></tr>`);
-        t.assignments.forEach(a=> win.document.write(`<tr><td>${a.date}</td><td>${a.period}</td><td>${a.room}</td></tr>`));
+        t.assignments.forEach(a=> {
+            const dayDisplay = examDays.find(d=>d.date===a.date && d.period===a.period) ? examDays.find(d=>d.date===a.date && d.period===a.period).displayDate : formatDateForDisplay(a.date);
+            win.document.write(`<tr><td>${dayDisplay}</td><td>${a.period}</td><td>${a.room}</td></tr>`);
+        });
         win.document.write('</table></div>');
     });
-    win.document.write('</body></html>'); win.document.close(); win.print();
+    win.document.write('</body></html>');
+    printWindow(win);
 }
 
 /* =============== غياب وتعويضات =============== */
 function showAbsenceForm() {
     const datesHtml = examDays.length ? examDays.map(d=>`<option value="${d.date}|${d.period}">${d.displayDate} — ${d.period}</option>`).join('') : '<option value="">لا توجد فترات اختبار</option>';
     const teachersOptions = teachers.map(t=>`<option value="${t.id}">${t.name} — ${t.subject} ${t.exempt? '(معفى)':''}</option>`).join('');
-    document.getElementById('modalTitle').innerText = 'تسجيل غياب حارس واختيار ��ديل';
+    document.getElementById('modalTitle').innerText = 'تسجيل غياب حارس واختيار بديل';
     document.getElementById('modalBody').innerHTML = `
         <div class="form-group"><label>اختر الفترة</label><select id="absencePeriodSelector">${datesHtml}</select></div>
         <div class="form-group"><label>الأستاذ الغائب</label><select id="absentTeacherSelector"><option value="">اختر أستاذاً</option>${teachersOptions}</select></div>
@@ -1269,7 +1340,7 @@ function markAbsent(name, date, period) {
         document.getElementById('modalTitle').innerText = 'تسجيل غياب سريع';
         document.getElementById('modalBody').innerHTML = `
             <p>تسجيل غياب الأستاذ: <strong>${t.name}</strong></p>
-            <p>التاريخ: <strong>${date}</strong> - الفترة: <strong>${period}</strong></p>
+            <p>التاريخ: <strong>${formatDateForDisplay(date)}</strong> - الفترة: <strong>${period}</strong></p>
             <div class="form-group"><label>اختر البديل</label><select id="quickReplacement"><option value="">--- لا أحد (شاغر) ---</option>${teachers.filter(tt=>tt.id!==t.id).map(tt=>`<option value="${tt.id}">${tt.name} — ${tt.subject}</option>`).join('')}</select></div>
             <div class="alert" style="margin-top:8px;padding:8px;background:#fff7ed;border-radius:8px;border:1px solid #fff0d9">سيستبدل البديل كل مواقع هذا الأستاذ في نفس التاريخ والفترة.</div>
         `;
@@ -1295,12 +1366,12 @@ function renderAbsencesTable() {
         const rooms = a.changes && a.changes.length ? a.changes.map(c=>c.room).join('، ') : 'لا توجد';
         return `<tr>
             <td>${i+1}</td>
-            <td>${a.date}</td>
+            <td>${formatDateForDisplay(a.date)}</td>
             <td>${a.period}</td>
             <td>${a.absentName||''}</td>
             <td>${a.replacementName||'لا يوجد'}</td>
             <td style="font-size:0.9rem">${rooms}</td>
-            <td>${new Date(a.timestamp).toLocaleString('ar-EG')}</td>
+            <td>${formatDateTimeForDisplay(a.timestamp)}</td>
             <td>
                 <button class="btn btn-info" onclick="printAbsenceInquiry(${i})"><i class="fas fa-print"></i></button>
                 <button class="btn btn-success" onclick="undoAbsence(${i})"><i class="fas fa-undo"></i></button>
@@ -1366,7 +1437,7 @@ function printOfficialExamReportModal() {
 function printOfficialExamReport(date, period) {
     if (!date || !period) return alert('اختر تاريخاً وفترة صحيحة.');
     const day = examDays.find(d=>d.date===date && d.period===period);
-    const displayDate = day ? day.displayDate : date;
+    const displayDate = day ? day.displayDate : formatDateForDisplay(date);
     const absForPeriod = absences.filter(a=>a.date===date && a.period===period);
     const scheduleForPeriod = schedule.filter(s=>s.date===date && s.period===period);
 
@@ -1387,11 +1458,11 @@ function printOfficialExamReport(date, period) {
     if (!absForPeriod.length) win.document.write('<p>لا توجد غيابات مسجلة لهذه الفترة.</p>');
     else {
         win.document.write('<table><thead><tr><th>الأستاذ الغائب</th><th>البديل</th><th>القاعات المتأثرة</th><th>الوقت المسجل</th></tr></thead><tbody>');
-        absForPeriod.forEach(a=>{ const rooms = (a.changes && a.changes.length) ? a.changes.map(c=>c.room).join('، ') : 'لا توجد'; win.document.write(`<tr><td>${a.absentName}</td><td>${a.replacementName||'لا يوجد'}</td><td style="font-size:12px">${rooms}</td><td>${new Date(a.timestamp).toLocaleString('ar-EG')}</td></tr>`); });
+        absForPeriod.forEach(a=>{ const rooms = (a.changes && a.changes.length) ? a.changes.map(c=>c.room).join('، ') : 'لا توجد'; win.document.write(`<tr><td>${a.absentName}</td><td>${a.replacementName||'لا يوجد'}</td><td style="font-size:12px">${rooms}</td><td>${formatDateTimeForDisplay(a.timestamp)}</td></tr>`); });
         win.document.write('</tbody></table>');
     }
     win.document.write('<p>ملاحظة: هذا محضر صادر من نظام التوزيع. للتوثيق الرسمي الرجاء توقيع المدير وختم المؤسسة.</p><div class="signature"><div>إمضاء المدير<br>.....................</div><div>الختم<br>.....................</div></div></body></html>');
-    win.document.close(); win.print();
+    printWindow(win);
 }
 
 /* =============== طباعة استدعاء الغياب =============== */
@@ -1404,12 +1475,12 @@ function printAbsenceInquiry(index) {
 <style>body{font-family:"Times New Roman",serif;direction:rtl;margin:30px}.header{text-align:center}.table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #000;padding:6px;text-align:center}.signature{margin-top:40px;text-align:left}</style>
 </head><body>
 <div class="header"><h2>استدعاء استفسار بخصوص غياب حارس</h2></div>
-<div><strong>إلى:</strong> ${rec.absentName}<br><strong>الموضوع:</strong> استفسار عن الغياب المؤرخ في ${rec.date} - ${rec.period}</div>
+<div><strong>إلى:</strong> ${rec.absentName}<br><strong>الموضوع:</strong> استفسار عن الغياب المؤرخ في ${formatDateForDisplay(rec.date)} - ${rec.period}</div>
 <div class="table"><table><thead><tr><th>القاعة</th><th>الفترة</th><th>البديل</th></tr></thead><tbody>`);
     if (rec.changes && rec.changes.length) rec.changes.forEach(ch=>{ const repName = rec.replacementName || 'لا يوجد'; win.document.write(`<tr><td>${ch.room}</td><td>${ch.period}</td><td>${repName}</td></tr>`); });
     else win.document.write('<tr><td colspan="3">لم توجد تعيينات مباشرة أو تم تسجيل الغياب بدون تعيينات</td></tr>');
     win.document.write('</tbody></table></div><div class="signature"><p>اسم المسؤول: ........................................</p><p>التاريخ: ........................................</p></div></body></html>');
-    win.document.close(); win.print();
+    printWindow(win);
 }
 
 function printAbsenceInquiriesAll() {
@@ -1417,12 +1488,13 @@ function printAbsenceInquiriesAll() {
     const win = window.open('', '_blank');
     win.document.write(`<html><head><meta charset="utf-8"><title>استدعاءات الغياب</title><style>body{font-family:Tahoma;direction:rtl}.notice{page-break-after:always;border:1px solid #000;padding:20px;margin-bottom:20px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #000;padding:6px;text-align:center}</style></head><body>`);
     absences.forEach(rec=>{
-        win.document.write(`<div class="notice"><h3 style="text-align:center">استدعاء استفسار بخصوص غياب حارس</h3><p>إلى: <strong>${rec.absentName}</strong></p><p>التاريخ: ${rec.date} — الفترة: ${rec.period}</p><table><thead><tr><th>القاعة</th><th>البديل</th></tr></thead><tbody>`);
+        win.document.write(`<div class="notice"><h3 style="text-align:center">استدعاء استفسار بخصوص غياب حارس</h3><p>إلى: <strong>${rec.absentName}</strong></p><p>التاريخ: ${formatDateForDisplay(rec.date)} — الفترة: ${rec.period}</p><table><thead><tr><th>القاعة</th><th>البديل</th></tr></thead><tbody>`);
         if (rec.changes && rec.changes.length) rec.changes.forEach(ch=> win.document.write(`<tr><td>${ch.room}</td><td>${rec.replacementName||'لا يوجد'}</td></tr>`));
         else win.document.write('<tr><td colspan="2">لم توجد تعيينات مباشرة</td></tr>');
         win.document.write('</tbody></table><p>ملاحظة: يرجى تقديم مبرر غيابكم في أقرب وقت.</p></div>');
     });
-    win.document.write('</body></html>'); win.document.close(); win.print();
+    win.document.write('</body></html>');
+    printWindow(win);
 }
 
 /* =============== أدوات مساعدة ================= */
@@ -1472,7 +1544,7 @@ function printScheduleByDay(date, period) {
     const daySchedule = schedule.filter(s => s.date === date && (!period || s.period === period));
     if (!daySchedule.length) return alert('لا يوجد جدول لهذا اليوم/الفترة.');
     const dayObj = examDays.find(d => d.date === date && d.period === period);
-    const displayDate = dayObj ? dayObj.displayDate + ' — ' + dayObj.period : date + (period ? ' — ' + period : '');
+    const displayDate = dayObj ? dayObj.displayDate + ' — ' + dayObj.period : formatDateForDisplay(date) + (period ? ' — ' + period : '');
     const win = window.open('', '_blank');
     win.document.write(`
     <html>
@@ -1483,7 +1555,7 @@ function printScheduleByDay(date, period) {
     </head>
     <body>
     <h2 style="text-align:center">جدول الحراسة</h2>
-    <h3 style="text-align:center">التاري�� : ${displayDate}</h3>
+    <h3 style="text-align:center">التاريخ : ${displayDate}</h3>
     <table>
     <thead><tr><th>القاعة</th><th>المادة</th><th>الحارس/الحراس</th></tr></thead><tbody>
     `);
@@ -1491,7 +1563,7 @@ function printScheduleByDay(date, period) {
         win.document.write(`<tr><td>${s.room}</td><td>${s.subject}</td><td>${s.professors.map(p=>p.name || '').join(' — ')}</td></tr>`);
     });
     win.document.write(`</tbody></table></body></html>`);
-    win.document.close(); win.print();
+    printWindow(win);
 }
 
 // طباعة قائمة الاحتياط (لكل الفترات أو لفترة معينة)
@@ -1502,10 +1574,11 @@ function printReservesAll() {
     win.document.write('<table><thead><tr><th>التاريخ</th><th>الفترة</th><th>الأساتذة</th></tr></thead><tbody>');
     reserves.slice().sort((a,b)=> new Date(a.date)-new Date(b.date)).forEach(r => {
         const day = examDays.find(d=>d.date===r.date && d.period===r.period);
-        const display = day ? day.displayDate : r.date;
+        const display = day ? day.displayDate : formatDateForDisplay(r.date);
         win.document.write(`<tr><td>${display}</td><td>${r.period}</td><td>${r.teachers.map(t=>t.name).join('، ')}</td></tr>`);
     });
-    win.document.write('</tbody></table></body></html>'); win.document.close(); win.print();
+    win.document.write('</tbody></table></body></html>');
+    printWindow(win);
 }
 
 // طباعة احتياط لمجموعة محددة من السجل (حسب فهرس reserves)
@@ -1513,12 +1586,13 @@ function printReservesByIndex(idx) {
     const r = reserves[idx];
     if (!r) return alert('سجل احتياط غير موجود.');
     const day = examDays.find(d=>d.date===r.date && d.period===r.period);
-    const display = day ? day.displayDate : r.date;
+    const display = day ? day.displayDate : formatDateForDisplay(r.date);
     const win = window.open('', '_blank');
     win.document.write(`<html><head><meta charset="utf-8"><title>الاحتياط - ${display}</title><style>body{font-family:Tahoma;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #000;padding:8px;text-align:center}th{background:#eee}</style></head><body><h2 style="text-align:center">أساتذة الاحتياط — ${display} — ${r.period}</h2>`);
     win.document.write('<table><thead><tr><th>الأساتذة الاحتياط</th></tr></thead><tbody>');
     r.teachers.forEach(t => { win.document.write(`<tr><td>${t.name}</td></tr>`); });
-    win.document.write('</tbody></table></body></html>'); win.document.close(); win.print();
+    win.document.write('</tbody></table></body></html>');
+    printWindow(win);
 }
 
 // عرض تفاصيل الأستاذ (مودال) مع قائمة الحراسات وزر طباعة
@@ -1533,7 +1607,7 @@ function showTeacherDetails(teacherId) {
         html += `<div class="table-container"><table><thead><tr><th>التاريخ</th><th>الفترة</th><th>القاعة</th></tr></thead><tbody>`;
         assignments.forEach(a => {
             const day = examDays.find(d => d.date === a.date && d.period === a.period);
-            html += `<tr><td>${day ? day.displayDate : a.date}</td><td>${a.period}</td><td>${a.room}</td></tr>`;
+            html += `<tr><td>${day ? day.displayDate : formatDateForDisplay(a.date)}</td><td>${a.period}</td><td>${a.room}</td></tr>`;
         });
         html += `</tbody></table></div>`;
     }
