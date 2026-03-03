@@ -404,7 +404,7 @@
             </div>
             <div class="table-container" style="margin-top:12px">
                 <table>
-                    <thead><tr><th>#</th><th>التاريخ</th><th>الفترة</th><th>الأستاذ الغائب</th><th>البديل</th><th>القاعات المتأثرة</th><th>الوقت</th><th>إجراءات</th></tr></thead>
+                    <thead><tr><th>#</th><th>التاريخ</th><th>ال��ترة</th><th>الأستاذ الغائب</th><th>البديل</th><th>القاعات المتأثرة</th><th>الوقت</th><th>إجراءات</th></tr></thead>
                     <tbody id="absencesTable"></tbody>
                 </table>
             </div>
@@ -446,23 +446,110 @@ function latinizeDigits(str) {
         .replace(/[\u06F0-\u06F9]/g, ch => String(ch.charCodeAt(0) - 0x06F0));
 }
 
-/* تنسيق تاريخ للعرض: مدخل يمكن أن يكون 'YYYY-MM-DD' أو Date -> يعطي "اسماليوم dd/mm/yyyy" مع أرقام لاتينية */
-function formatDateForDisplay(dateInput) {
-    let d;
-    if (!dateInput) d = new Date();
-    else if (dateInput instanceof Date) d = new Date(dateInput.getTime());
-    else {
-        // نضمن إنشاء التاريخ بدون تحويل المنطقة بشكل خاطئ
-        d = new Date(dateInput + 'T00:00:00');
+/* مساعدة: تحويل محتوى خلية التاريخ من Excel / CSV إلى سلسلة ISO محلية 'YYYY-MM-DD' بدون تغيير اليوم */
+function parseExcelDateToISO(cell) {
+    if (cell === null || cell === undefined || cell === '') return null;
+
+    // إذا كانت قيمة Date (XLSX مع cellDates:true يعطي Date)
+    if (cell instanceof Date && !isNaN(cell)) {
+        const y = cell.getFullYear();
+        const m = String(cell.getMonth() + 1).padStart(2, '0');
+        const d = String(cell.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
     }
-    // ضبط الـ timezone لطريقة عرض اليومية
-    d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+
+    // بعض الملفات قد تعطي أرقام Excel (serial dates)
+    if (typeof cell === 'number' && !isNaN(cell)) {
+        // Excel epoch: 1899-12-30 (بما في ذلك معالجة خطأ سنة 1900 غير المعترف به في JS)
+        const excelEpoch = new Date(1899, 11, 30);
+        const date = new Date(excelEpoch.getTime() + Math.round(cell) * 24 * 60 * 60 * 1000);
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+
+    // إذا كانت نصية، ندعم عدة صيغ شائعة: YYYY-MM-DD أو DD/MM/YYYY أو DD-MM-YYYY
+    const s = String(cell).trim();
+    const isoMatch = s.match(/^(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})$/);
+    if (isoMatch) {
+        const y = isoMatch[1];
+        const m = String(isoMatch[2]).padStart(2, '0');
+        const d = String(isoMatch[3]).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+    const dmMatch = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+    if (dmMatch) {
+        const d = String(dmMatch[1]).padStart(2, '0');
+        const m = String(dmMatch[2]).padStart(2, '0');
+        const y = dmMatch[3];
+        return `${y}-${m}-${d}`;
+    }
+
+    // محاولة احتياطية: تحليل بواسطة Date ثم استخراج أجزاء محلية
+    const parsed = new Date(s);
+    if (!isNaN(parsed)) {
+        const y = parsed.getFullYear();
+        const m = String(parsed.getMonth() + 1).padStart(2, '0');
+        const d = String(parsed.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+
+    // لا يمكن التحويل — نعيد النص كما هو (سيؤدي لاحقاً إلى فشل إدخال صالح)
+    return s;
+}
+
+/* تنسيق تاريخ للعرض: مدخل يمكن أن يكون 'YYYY-MM-DD' أو Date -> يعطي "اسماليوم dd/mm/yyyy" مع أرقام لاتينية
+   هذه النسخة تعتمد استخراج أجزاء التاريخ محليًا وتستخدم Date.UTC لحساب اسم اليوم لتجنّب انزياح اليوم بسبب timezone */
+function formatDateForDisplay(dateInput) {
     const days = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
-    const dayName = days[d.getDay()];
-    const dd = String(d.getDate()).padStart(2,'0');
-    const mm = String(d.getMonth()+1).padStart(2,'0');
-    const yyyy = d.getFullYear();
-    return `${dayName} ${dd}/${mm}/${yyyy}`; // أرقام لاتينية بوضوح
+
+    if (!dateInput) {
+        const today = new Date();
+        const dd = String(today.getDate()).padStart(2,'0');
+        const mm = String(today.getMonth()+1).padStart(2,'0');
+        const yyyy = today.getFullYear();
+        const dayName = days[today.getDay()];
+        return `${dayName} ${dd}/${mm}/${yyyy}`;
+    }
+
+    let year, month, day, dayName;
+
+    if (dateInput instanceof Date && !isNaN(dateInput)) {
+        year = dateInput.getFullYear();
+        month = dateInput.getMonth() + 1;
+        day = dateInput.getDate();
+        dayName = days[dateInput.getDay()];
+    } else {
+        // نتوقع 'YYYY-MM-DD' أو أشكال أخرى؛ نأخذ الجزء قبل 'T' إن وجد
+        const s = String(dateInput).split('T')[0];
+        const parts = s.split('-');
+        if (parts.length === 3 && parts[0].length === 4) {
+            year = parseInt(parts[0], 10);
+            month = parseInt(parts[1], 10);
+            day = parseInt(parts[2], 10);
+            // استخدم Date.UTC مع getters لليوم (تجنّب تحوّل المنطقة)
+            const tmp = new Date(Date.UTC(year, month-1, day));
+            dayName = days[tmp.getUTCDay()];
+        } else {
+            // fallback: محاولة تحليل عام
+            const parsed = new Date(s);
+            if (!isNaN(parsed)) {
+                year = parsed.getFullYear();
+                month = parsed.getMonth() + 1;
+                day = parsed.getDate();
+                dayName = days[parsed.getDay()];
+            } else {
+                // إذا لم نتمكن من解析، نعيد النص كما هو
+                return String(dateInput);
+            }
+        }
+    }
+
+    const dd = String(day).padStart(2,'0');
+    const mm = String(month).padStart(2,'0');
+    const yyyy = year;
+    return `${dayName} ${dd}/${mm}/${yyyy}`;
 }
 
 /* تنسيق طابع زمني (ISO أو Date) إلى dd/mm/yyyy HH:MM بأرقام لاتينية */
@@ -723,7 +810,7 @@ function showAddTeacherModal() {
 function editTeacher(index) {
     const t = teachers[index];
     if (!t.exemptions) t.exemptions = [];
-    document.getElementById('modalTitle').innerText = 'تعديل بيانات أستاذ';
+    document.getElementById('modalTitle').innerText = 'ت��ديل بيانات أستاذ';
     let exemptionsHtml = t.exemptions.map((ex, i) => `
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;background:#f1f5f9;padding:6px;border-radius:6px;">
             <span>إعفاء: <strong>${ex.date}</strong> (${ex.period === 'all' ? 'يوم كامل' : ex.period})</span>
@@ -870,6 +957,7 @@ function downloadExamTemplate() {
     XLSX.writeFile(wb, 'نموذج_جدول_الامتحانات.xlsx');
 }
 
+/* تعديل: استخدام parseExcelDateToISO داخل handleExamFileUpload لتجنّب تغيير اليوم بسبب timezone */
 function handleExamFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -878,6 +966,7 @@ function handleExamFileUpload(event) {
     reader.onload = function(e) {
         try {
             const data = new Uint8Array(e.target.result);
+            // نقرأ الخلايا مع cellDates:true (ولكن حتى لو أعطت Date، سنحوّلها بطريقة آمنة)
             const workbook = XLSX.read(data, { type: 'array', cellDates: true });
             const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
             const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
@@ -886,16 +975,19 @@ function handleExamFileUpload(event) {
             examDays = [];
             for (let i = startRow; i < rows.length; i++) {
                 const row = rows[i];
-                if (!row || !row[0]) continue;
-                let date;
-                if (row[0] instanceof Date) { row[0].setMinutes(row[0].getMinutes() + row[0].getTimezoneOffset()); date = row[0].toISOString().split('T')[0]; }
-                else date = new Date(row[0]).toISOString().split('T')[0];
+                if (!row || row.length === 0) continue;
+                if (!row[0]) continue;
+
+                // استخدام الدالة الآمنة لتحويل خلية التاريخ إلى 'YYYY-MM-DD'
+                const parsedDate = parseExcelDateToISO(row[0]);
+                if (!parsedDate) continue;
+
                 const period = String(row[1] || 'صباح').trim();
                 const subjectsStr = String(row[2] || '').trim();
                 const rCount = parseInt(row[3]) || rooms.length || 14;
                 if (!subjectsStr) continue;
                 const subjects = subjectsStr.split(',').map(s=>s.trim()).filter(s=>s);
-                addExamDay(date, period, subjects, rCount, true);
+                addExamDay(parsedDate, period, subjects, rCount, true);
                 importedCount++;
             }
             document.getElementById('examFileStatus').innerText = `تم استيراد ${importedCount} فترة اختبار.`;
@@ -1242,7 +1334,7 @@ function printTeacherSchedule(teacherId) {
     const teacher = teachers.find(t => t.id === teacherId);
     if (!teacher || !teacher.assignments || teacher.assignments.length === 0) return alert('لا توجد حراسات لهذا الأستاذ.');
     const win = window.open('', '_blank');
-    win.document.write(`<html><head><meta charset="utf-8"><title>استدعاء - ${teacher.name}</title><style>body{font-family:Tahoma;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:8px;text-align:center}</style></head><body><h2 style="text-align:center">استدعاء للحراسة - ${teacher.name}</h2><table><thead><tr><th>التاريخ</th><th>الفترة</th><th>القاعة</th></tr></thead><tbody>`);
+    win.document.write(`<html><head><meta charset="utf-8"><title>استدعاء - ${teacher.name}</title><style>body{font-family:Tahoma;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:8px;text-align:center}</style></head><body><h2 style="text-align:center">استدعاء للحراسة - ${teacher.name}</h2><table><thead><tr><th>التاريخ</th><th>ال��ترة</th><th>القاعة</th></tr></thead><tbody>`);
     teacher.assignments.sort((a,b)=> new Date(a.date)-new Date(b.date) || (a.period==='صباح'? -1:1)).forEach(a=>{
         const day = examDays.find(d=>d.date===a.date && d.period===a.period);
         const display = day ? day.displayDate : formatDateForDisplay(a.date);
