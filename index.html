@@ -879,7 +879,7 @@ function showSection(section, element) {
     ['import','rooms','exams','distribution','results','absences','correction'].forEach(id => {
         const el = document.getElementById(id + 'Section');
         if (el) el.style.display = 'none';
-    });
+    })
 
     const toShow = document.getElementById(section + 'Section');
     // بعض الأقسام تستخدم grid (import، correction) لأن لديها layout من نوع app-grid
@@ -905,6 +905,30 @@ function downloadTeacherTemplate() {
     XLSX.writeFile(wb, 'نموذج_الأساتذة.xlsx');
 }
 
+// دوال مساعدة لاستخلاص وتنظيف الخلايا واكتشاف صف الرأس
+function normalizeCell(val) {
+    if (val === null || val === undefined) return '';
+    return String(val).replace(/\u00A0/g, ' ').replace(/\u200E|\u200F/g, '').trim();
+}
+
+function detectHeaderRow(rows) {
+    for (let i = 0; i < Math.min(rows.length, 5); i++) {
+        const row = rows[i];
+        if (!row || !row.length) continue;
+        for (let cell of row) {
+            if (typeof cell === 'string' && /اسم|الاسم|name/i.test(cell)) return i;
+        }
+    }
+    return -1;
+}
+
+/* نسخة محسّنة من handleFileUpload:
+   - تستخدم defval:'' لتفادي undefined في الخلايا الفارغة
+   - تنظف النصوص من مسافات غير مرئية
+   - تكشف صف الرأس بمرونة (أول 5 صفوف)
+   - تحاول إيجاد الاسم حتى لو كان في عمود مختلف
+   - تمنع إضافة المكررات بعد التطبيع
+*/
 function handleFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -915,46 +939,69 @@ function handleFileUpload(event) {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
             const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-            const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
-            const startRow = (rows[0] && rows[0][0] && String(rows[0][0]).toLowerCase().includes('اسم')) ? 1 : 0;
+            const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+
+            const headerIndex = detectHeaderRow(rows);
+            const startRow = headerIndex >= 0 ? headerIndex + 1 : 0;
+
             let importedCount = 0;
+            if (!Array.isArray(teachers)) teachers = [];
+
+            const existingNames = new Set(teachers.map(t => normalizeCell(t.name).toLowerCase()));
+
             for (let i = startRow; i < rows.length; i++) {
                 const row = rows[i];
-                if (!row || !row[0]) continue;
-                const name = String(row[0]).trim();
-                const subject = String(row[1] || 'غير محدد').trim();
-                const statusRaw = String(row[2] || 'نشط').trim().toLowerCase();
-                const statusMap = { 'نشط': 'active', 'معفى': 'exempt', 'إدارة': 'admin' };
+                if (!row || row.length === 0) continue;
+                const allEmpty = row.every(c => c === '' || c === null || c === undefined);
+                if (allEmpty) continue;
+
+                // نحاول العثور على الاسم في الأعمدة 0..3 لأن بعض القوالب قد تختلف
+                const rawName = normalizeCell(row[0] || row[1] || row[2] || row[3] || '');
+                if (!rawName) continue;
+
+                const name = rawName;
+                const subject = normalizeCell(row[1] || row[2] || row[3] || 'غير محدد') || 'غير محدد';
+                let statusRaw = normalizeCell(row[2] || row[3] || '').toLowerCase().replace(/\s+/g, '');
+                if (!statusRaw) statusRaw = 'نشط';
+
+                const statusMap = {
+                    'نشط': 'active', 'فعال': 'active', 'active': 'active',
+                    'معفى': 'exempt', 'معفىً': 'exempt', 'exempt': 'exempt',
+                    'ادارة': 'admin', 'إدارة': 'admin', 'admin': 'admin'
+                };
                 const status = statusMap[statusRaw] || 'active';
-                if (name && !teachers.some(t => t.name === name)) {
-                    teachers.push({
-                        id: Date.now() + i,
-                        name: name,
-                        subject: subject,
-                        status: status,
-                        exempt: (status === 'exempt' || status === 'admin'),
-                        assignments: [],
-                        guardedRooms: new Set(),
-                        exemptions: [],
-                        totalAssigned: 0,
-                        totalReserves: 0,
-                        lastAssignedDate: null,
-                        lastAssignedPeriod: null
-                    });
-                    importedCount++;
-                }
+
+                const normLower = normalizeCell(name).toLowerCase();
+                if (existingNames.has(normLower)) continue;
+
+                teachers.push({
+                    id: Date.now() + i + Math.floor(Math.random() * 1000),
+                    name: name,
+                    subject: subject,
+                    status: status,
+                    exempt: (status === 'exempt' || status === 'admin'),
+                    assignments: [],
+                    guardedRooms: new Set(),
+                    exemptions: [],
+                    totalAssigned: 0,
+                    totalReserves: 0,
+                    lastAssignedDate: null,
+                    lastAssignedPeriod: null
+                });
+                existingNames.add(normLower);
+                importedCount++;
             }
+
             document.getElementById('fileStatus').innerText = `تم استيراد ${importedCount} أستاذ`;
             saveToStorage(); updateTeachersTable(); populateDaySelectors();
             alert(`تم استيراد ${importedCount} أستاذ بنجاح.`);
         } catch (err) {
-            alert('خطأ في قراءة الملف. تأكد من صيغته.');
+            alert('خطأ في قراءة الملف. تأكد من صيغته (xlsx / xls / csv) وبنية الأعمدة.');
             console.error(err);
         }
     };
     reader.readAsArrayBuffer(file);
 }
-
 function exportTeachers() {
     if (!teachers.length) return alert('لا يوجد بيانات لتصديرها.');
     const statusMap = { 'active': 'نشط', 'exempt': 'معفى', 'admin': 'إدارة' };
