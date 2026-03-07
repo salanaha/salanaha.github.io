@@ -1215,9 +1215,18 @@ function handleExamFileUpload(event) {
     };
     reader.readAsArrayBuffer(file);
 }
-
+function addDaysToDateStr(dateStr, days) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    // نستخدم UTC لإنشاء كائن التاريخ
+    const date = new Date(Date.UTC(year, month - 1, day));
+    date.setUTCDate(date.getUTCDate() + days);
+    const y = date.getUTCFullYear();
+    const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(date.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
 /* تم تعديل addExamDay ليقبل daysCount ويولد مداخل متتالية بعدد الأيام المحدد */
-function addExamDay(date, period, subjects, rCount, fromImport=false, daysCount=1) {
+function addExamDay(date, period, subjects, rCount, fromImport = false, daysCount = 1) {
     let roomCount = rCount;
     let baseDate;
     if (!fromImport) {
@@ -1227,7 +1236,7 @@ function addExamDay(date, period, subjects, rCount, fromImport=false, daysCount=
         roomCount = parseInt(document.getElementById('examRoomCount').value) || rooms.length;
         daysCount = parseInt(document.getElementById('examDaysCount').value) || 1;
         if (!subjectsStr) return alert('الرجاء إدخال المواد الممتحنة.');
-        subjects = subjectsStr.split(',').map(s=>s.trim()).filter(s=>s);
+        subjects = subjectsStr.split(',').map(s => s.trim()).filter(s => s);
     } else {
         baseDate = date;
         daysCount = daysCount || 1;
@@ -1235,23 +1244,30 @@ function addExamDay(date, period, subjects, rCount, fromImport=false, daysCount=
 
     if (!baseDate || !subjects || subjects.length === 0) return alert('الرجاء ملء حقلي التاريخ والمواد.');
 
-    // أنشئ مداخل متتالية لعدد الأيام المحدد
     for (let d = 0; d < daysCount; d++) {
-        const dt = new Date(baseDate + 'T00:00:00');
-        dt.setDate(dt.getDate() + d);
-        const isoDate = dt.toISOString().split('T')[0];
-
-        // تفادي التكرار لنفس التاريخ والفترة
+        const isoDate = addDaysToDateStr(baseDate, d); // استخدام الدالة الآمنة
         const exists = examDays.some(e => e.date === isoDate && e.period === period);
         if (exists) {
             if (!fromImport) alert(`يوجد اختبار في ${formatDateForDisplay(isoDate)} — ${period}. سيتم تخطيه.`);
             continue;
         }
         const displayDateStr = formatDateForDisplay(isoDate);
-        examDays.push({ id: Date.now()+Math.random(), date: isoDate, displayDate: displayDateStr, period: period, subjects: subjects, roomCount: roomCount, durationDays: daysCount });
+        examDays.push({ 
+            id: Date.now() + Math.random(), 
+            date: isoDate, 
+            displayDate: displayDateStr, 
+            period: period, 
+            subjects: subjects, 
+            roomCount: roomCount, 
+            durationDays: daysCount 
+        });
     }
 
-    if (!fromImport) { updateExamsTable(); saveToStorage(); populateDaySelectors(); }
+    if (!fromImport) { 
+        updateExamsTable(); 
+        saveToStorage(); 
+        populateDaySelectors(); 
+    }
 }
 
 function updateExamsTable() {
