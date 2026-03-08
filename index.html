@@ -1006,29 +1006,131 @@ function filterStudents() {
         row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
     });
 }
+function renderStudentAbsencesList(studentId) {
+    const listHtml = (studentAbsences.filter(a => a.studentId === studentId)
+        .sort((a,b) => new Date(b.date) - new Date(a.date))
+        .map(ab => {
+            const display = formatDateForDisplay(ab.date);
+            return `
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;background:#f9f9f9;padding:8px;border-radius:6px;">
+                    <div style="flex:1">
+                        <div><strong>${display}</strong> — <span class="small-note">${ab.period}</span></div>
+                    </div>
+                    <div style="display:flex;gap:6px">
+                        <button class="btn btn-info" onclick="editStudentAbsence(${ab.id})" title="تعديل الإنعاش"><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-danger" onclick="deleteStudentAbsence(${ab.id})" title="حذف الغياب"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+            `;
+        }).join('')) || '<div class="small-note">لا توجد غيابات مسجلة لهذا التلميذ.</div>';
+    return listHtml;
+}
+
 function showStudentAbsenceModal(studentId) {
     const s = students.find(st => st.id === studentId);
-    if (!s) return;
-    document.getElementById('modalTitle').innerText = `تسجيل غياب — ${s.firstName} ${s.lastName}`;
+    if (!s) return alert('التلميذ غير موجود.');
+    document.getElementById('modalTitle').innerText = `تسجيل/عرض الغيابات — ${s.firstName || ''} ${s.lastName || ''}`;
+
+    const previousListHtml = renderStudentAbsencesList(studentId);
+
     document.getElementById('modalBody').innerHTML = `
-        <div class="form-group"><label>تاريخ الغياب</label><input type="date" id="studentAbsenceDate"></div>
-        <div class="form-group"><label>الفترة</label>
-            <select id="studentAbsencePeriod">
-                <option value="صباح">صباح</option>
-                <option value="مساء">مساء</option>
-            </select>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="form-group"><label>تاريخ الغياب</label><input type="date" id="studentAbsenceDate"></div>
+            <div class="form-group"><label>الفترة</label>
+                <select id="studentAbsencePeriod"><option value="صباح">صباح</option><option value="مساء">مساء</option></select>
+            </div>
         </div>
-        <div style="margin:10px 0;font-size:.93rem"><b>سجل الغيابات السابقة:</b></div>
-        ${(studentAbsences.filter(a=>a.studentId===s.id).map(ab => `<div style="background:#f9f9f9;padding:6px;border-radius:5px">${ab.date} — ${ab.period}</div>`).join('')) || '<span class="chip">لا توجد</span>'}
+        <div style="margin-top:10px;display:flex;gap:8px">
+            <button class="btn btn-success" id="addStudentAbsenceBtn"><i class="fas fa-plus"></i> تسجيل غياب</button>
+            <button class="btn" onclick="closeModal()"><i class="fas fa-times"></i> إغلاق</button>
+        </div>
+        <hr style="margin:12px 0">
+        <h4>سجل الغيابات السابقة</h4>
+        <div id="studentAbsencesList" style="max-height:220px;overflow:auto;margin-top:8px">
+            ${previousListHtml}
+        </div>
     `;
     document.getElementById('modal').style.display = 'flex';
-    window.modalCallback = function() {
+
+    // إضافة حدث الزر لتسجيل غياب جديد
+    document.getElementById('addStudentAbsenceBtn').onclick = function() {
         const date = document.getElementById('studentAbsenceDate').value;
         const period = document.getElementById('studentAbsencePeriod').value;
-        if (!date) return alert('اختر تاريخ الغياب!');
-        studentAbsences.push({ id:Date.now(), studentId: s.id, date, period });
-        saveToStorage(); updateStudentsTable(); closeModal();
+        if (!date) return alert('الرجاء اختيار تاريخ الغياب.');
+        // تحقق من التكرار لنفس اليوم/الفترة
+        const exists = studentAbsences.some(a => a.studentId === studentId && a.date === date && a.period === period);
+        if (exists) return alert('تم تسجيل هذا الغياب مسبقاً.');
+        studentAbsences.push({ id: Date.now(), studentId: studentId, date, period });
+        saveToStorage();
+        updateStudentsTable();
+        // تحديث قائمة الغيابات داخل المودال بدون إغلاقه
+        const listContainer = document.getElementById('studentAbsencesList');
+        if (listContainer) listContainer.innerHTML = renderStudentAbsencesList(studentId);
+        alert('تم تسجيل الغياب بنجاح.');
     };
+
+    // ضبط callback افتراضي لغلق المودال (لا يفعل تغييرات إضافية)
+    window.modalCallback = function() { closeModal(); };
+}
+
+function editStudentAbsence(absenceId) {
+    const recIndex = studentAbsences.findIndex(a => a.id === absenceId);
+    if (recIndex === -1) return alert('سجل الغياب غير موجود.');
+    const rec = studentAbsences[recIndex];
+    const student = students.find(s => s.id === rec.studentId);
+    if (!student) return alert('التلميذ المرتبط غير موجود.');
+
+    document.getElementById('modalTitle').innerText = `تعديل غياب — ${student.firstName || ''} ${student.lastName || ''}`;
+    document.getElementById('modalBody').innerHTML = `
+        <div class="form-group"><label>تاريخ الغياب</label><input type="date" id="editStudentAbsenceDate" value="${rec.date}"></div>
+        <div class="form-group"><label>الفترة</label>
+            <select id="editStudentAbsencePeriod">
+                <option value="صباح" ${rec.period === 'صباح' ? 'selected' : ''}>صباح</option>
+                <option value="مساء" ${rec.period === 'مساء' ? 'selected' : ''}>مساء</option>
+            </select>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn btn-success" id="saveEditStudentAbsenceBtn"><i class="fas fa-save"></i> حفظ التعديل</button>
+            <button class="btn btn-danger" id="cancelEditStudentAbsenceBtn"><i class="fas fa-times"></i> إلغاء</button>
+        </div>
+    `;
+    document.getElementById('modal').style.display = 'flex';
+
+    document.getElementById('saveEditStudentAbsenceBtn').onclick = function() {
+        const newDate = document.getElementById('editStudentAbsenceDate').value;
+        const newPeriod = document.getElementById('editStudentAbsencePeriod').value;
+        if (!newDate) return alert('اختر تاريخاً صالحاً.');
+        // تحقق من تكرار آخر (غير هذا السجل)
+        const conflict = studentAbsences.some(a => a.studentId === rec.studentId && a.id !== absenceId && a.date === newDate && a.period === newPeriod);
+        if (conflict) return alert('يوجد سجل غياب بنفس التاريخ والفترة لهذا التلميذ.');
+        studentAbsences[recIndex].date = newDate;
+        studentAbsences[recIndex].period = newPeriod;
+        saveToStorage();
+        updateStudentsTable();
+        closeModal();
+        alert('تم تحديث سجل الغياب.');
+    };
+    document.getElementById('cancelEditStudentAbsenceBtn').onclick = function() { 
+        // إعادة عرض قائمة الغيابات الأصلية للمودال (نعود إلى view السابق)
+        showStudentAbsenceModal(student.id);
+    };
+
+    // تأكد من ضبط callback إن ضغط المستخدم "تأكيد" في الفوتر العام للمودال
+    window.modalCallback = function() { document.getElementById('saveEditStudentAbsenceBtn').click(); };
+}
+
+function deleteStudentAbsence(absenceId) {
+    const idx = studentAbsences.findIndex(a => a.id === absenceId);
+    if (idx === -1) return alert('سجل الغياب غير موجود.');
+    if (!confirm('هل أنت متأكد من حذف هذا الغياب نهائياً؟')) return;
+    const studentId = studentAbsences[idx].studentId;
+    studentAbsences.splice(idx,1);
+    saveToStorage();
+    updateStudentsTable();
+    // إذا كان المودال مفتوح ويعرض نفس التلميذ، حدّث القائمة
+    const listContainer = document.getElementById('studentAbsencesList');
+    if (listContainer) listContainer.innerHTML = renderStudentAbsencesList(studentId);
+    alert('تم حذف الغياب.');
 }
 function deleteStudent(studentId) {
     if (!confirm("تأكيد حذف التلميذ وكل غياباته؟")) return;
@@ -2039,7 +2141,6 @@ roomMap.forEach(data => {
         </tr>
     `);
 });
-  win.document.write(`</tbody></table>`);
 // إضافة عنوان لجدول غيابات التغلاميذ
 win.document.write(`<h3 style="margin-top:16px">غيابات التلاميذ</h3>`);
 
