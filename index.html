@@ -402,14 +402,45 @@
     <div id="absencesSection" style="display:none;">
         <div class="card full">
             <h2><i class="fas fa-user-clock"></i> سجل الغيابات</h2>
+          <!-- سجل التلاميذ والغيابات (داخل سجل الغيابات) -->
+<div class="card full" id="studentsAbsenceCard">
+    <h2><i class="fas fa-child"></i> إدارة التلاميذ وتسجيل الغيابات</h2>
+    <div class="form-group">
+        <input type="file" id="studentsFileInput" accept=".xls,.xlsx,.csv" style="display:none" onchange="handleStudentsFileUpload(event)">
+        <button class="btn btn-success" onclick="document.getElementById('studentsFileInput').click()">
+            <i class="fas fa-file-upload"></i> استيراد من ملف رقمنة
+        </button>
+      <button class="btn btn-danger" onclick="clearAllStudents()">
+    <i class="fas fa-trash"></i> حذف جميع التلاميذ
+</button>
+    </div>
+    <div class="form-group">
+        <input type="text" id="studentSearch" placeholder="بحث عن تلميذ..." onkeyup="filterStudents()">
+    </div>
+    <div class="table-container" style="max-height:350px;overflow-y:auto">
+        <table>
+            <thead>
+                <tr>
+                    <th>رقم التعريف</th>
+                    <th>اللقب</th>
+                    <th>الاسم</th>
+                    <th>القسم</th>
+                    <th>غيابات مسجلة</th>
+                    <th>إجراءات</th>
+                </tr>
+            </thead>
+            <tbody id="studentsTable"></tbody>
+        </table>
+    </div>
+</div>
             <div style="display:flex;gap:10px;margin-bottom:10px">
                 <button class="btn btn-info" onclick="showAbsenceForm()"><i class="fas fa-plus"></i> سجل غياب جديد</button>
                 <button class="btn btn-primary" onclick="printAbsenceInquiriesAll()"><i class="fas fa-print"></i> طباعة الاستفسارات</button>
-                <button class="btn btn-warning" onclick="printOfficialExamReportModal()"><i class="fas fa-file-signature"></i> طباعة محضر رسمي</button>
+                <button class="btn btn-warning" onclick="printOfficialExamReportModal()"><i class="fas fa-file-signature"></i> محضر سير الاختبار  </button>
             </div>
             <div class="table-container" style="margin-top:12px">
                 <table>
-                    <thead><tr><th>#</th><th>التاريخ</th><th>ال��ترة</th><th>الأستاذ الغائب</th><th>البديل</th><th>القاعات المتأثرة</th><th>الوقت</th><th>إجراءات</th></tr></thead>
+                    <thead><tr><th>#</th><th>التاريخ</th><th>الفترة</th><th>الأستاذ الغائب</th><th>البديل</th><th>القاعات المتأثرة</th><th>الوقت</th><th>إجراءات</th></tr></thead>
                     <tbody id="absencesTable"></tbody>
                 </table>
             </div>
@@ -602,6 +633,8 @@
 
 <script>
 /* ===================== بيانات التطبيق ===================== */
+  let students = [];
+let studentAbsences = [];
 let teachers = [];
 let rooms = [];
 let examDays = [];
@@ -776,6 +809,8 @@ function saveToStorage() {
         settings,
         classes,
         subjects,
+      students,
+studentAbsences,
         assignments,
         correctionSchedule
     };
@@ -795,6 +830,8 @@ function loadFromStorage() {
         schedule = data.schedule || [];
         reserves = data.reserves || [];
         absences = data.absences || [];
+      students = data.students || [];
+studentAbsences = data.studentAbsences || [];
         settings = Object.assign(settings, data.settings || {});
         
         // إضافة بيانات التصحيح
@@ -834,6 +871,11 @@ function loadFromStorage() {
             document.getElementById('educationLevel').value = settings.educationLevel;
         }
     } catch (e) { console.error("خطأ في تحميل البيانات:", e); }
+  
+if (typeof updateStudentsTable === 'function') {
+    updateStudentsTable();
+}
+
 }
 
 /* =============== أدوات واجهة المفاتيح =============== */
@@ -889,6 +931,118 @@ function showSection(section, element) {
 function saveData() {
     saveToStorage();
     alert('تم حفظ البيانات بنجاح ✅');
+}
+  /*======دوال التلاميذ====*/
+  function handleStudentsFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: "" });
+
+            // المؤشرات للأعمدة
+            const header = rows[0];
+            const idxLastName = header.findIndex(h=>h.includes("اللقب"));
+            const idxFirstName = header.findIndex(h=>h.includes("الاسم"));
+            const idxClass = header.findIndex(h=>h.includes("القسم"));
+            const idxYear = header.findIndex(h=>h.includes("السنة")); // المستوى
+
+            let imported = 0;
+            for (let i=1; i<rows.length; i++) {
+                const row = rows[i];
+                if (!row[idxLastName] && !row[idxFirstName]) continue;
+                // دمج المستوى مع القسم إذا وجودا معًا
+                let joinedClass = "";
+                if(idxYear !== -1 && row[idxYear]) joinedClass += row[idxYear].toString().trim() + " ";
+                if(idxClass !== -1 && row[idxClass]) joinedClass += row[idxClass].toString().trim();
+                joinedClass = joinedClass.trim();
+
+                students.push({
+                    id: Date.now()+i,
+                    lastName: row[idxLastName] || "",
+                    firstName: row[idxFirstName] || "",
+                    class: joinedClass,
+                    absences: [],
+                });
+                imported++;
+            }
+            saveToStorage();
+            updateStudentsTable();
+            alert(`تم استيراد ${imported} تلميذاً بنجاح`);
+        } catch(e) {
+            alert("حدث خطأ أثناء رفع الملف. تأكد من الصيغة.");
+            console.error(e);
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+function updateStudentsTable() {
+    const tbody = document.getElementById('studentsTable');
+    if (!students.length) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty-state">لا توجد بيانات</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = students.map(s=>`
+        <tr>
+            <td>${s.id}</td>
+            <td>${s.lastName}</td>
+            <td>${s.firstName}</td>
+            <td>${s.class}</td>
+            <td><span class="chip">${studentAbsences.filter(a=>a.studentId===s.id).length}</span></td>
+            <td>
+                <button class="btn btn-warning" onclick="showStudentAbsenceModal(${s.id})"><i class="fas fa-user-clock"></i></button>
+                <button class="btn btn-danger" onclick="deleteStudent(${s.id})"><i class="fas fa-trash"></i></button>
+            </td>
+        </tr>
+    `).join('');
+}
+function filterStudents() {
+    const term = document.getElementById('studentSearch').value.toLowerCase();
+    document.querySelectorAll('#studentsTable tr').forEach(row => {
+        row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
+    });
+}
+function showStudentAbsenceModal(studentId) {
+    const s = students.find(st => st.id === studentId);
+    if (!s) return;
+    document.getElementById('modalTitle').innerText = `تسجيل غياب — ${s.firstName} ${s.lastName}`;
+    document.getElementById('modalBody').innerHTML = `
+        <div class="form-group"><label>تاريخ الغياب</label><input type="date" id="studentAbsenceDate"></div>
+        <div class="form-group"><label>الفترة</label>
+            <select id="studentAbsencePeriod">
+                <option value="صباح">صباح</option>
+                <option value="مساء">مساء</option>
+            </select>
+        </div>
+        <div style="margin:10px 0;font-size:.93rem"><b>سجل الغيابات السابقة:</b></div>
+        ${(studentAbsences.filter(a=>a.studentId===s.id).map(ab => `<div style="background:#f9f9f9;padding:6px;border-radius:5px">${ab.date} — ${ab.period}</div>`).join('')) || '<span class="chip">لا توجد</span>'}
+    `;
+    document.getElementById('modal').style.display = 'flex';
+    window.modalCallback = function() {
+        const date = document.getElementById('studentAbsenceDate').value;
+        const period = document.getElementById('studentAbsencePeriod').value;
+        if (!date) return alert('اختر تاريخ الغياب!');
+        studentAbsences.push({ id:Date.now(), studentId: s.id, date, period });
+        saveToStorage(); updateStudentsTable(); closeModal();
+    };
+}
+function deleteStudent(studentId) {
+    if (!confirm("تأكيد حذف التلميذ وكل غياباته؟")) return;
+    students = students.filter(s => s.id !== studentId);
+    studentAbsences = studentAbsences.filter(a => a.studentId !== studentId);
+    saveToStorage(); updateStudentsTable();
+}
+  function clearAllStudents() {
+    if (!confirm('تحذير: سيتم حذف جميع التلاميذ والغيابات المرتبطة نهائيًا. هل أنت متأكد؟')) return;
+    students = [];
+    studentAbsences = [];
+    saveToStorage();
+    updateStudentsTable();
+    alert('تم حذف جميع التلاميذ والغيابات بنجاح.');
 }
 /* =============== دوال الأساتذة =============== */
 function downloadTeacherTemplate() {
@@ -1639,7 +1793,7 @@ function printTeacherSchedule(teacherId) {
     const teacher = teachers.find(t => t.id === teacherId);
     if (!teacher || !teacher.assignments || teacher.assignments.length === 0) return alert('لا توجد حراسات لهذا الأستاذ.');
     const win = window.open('', '_blank');
-    win.document.write(`<html><head><meta charset="utf-8"><title>استدعاء - ${teacher.name}</title><style>body{font-family:Tahoma;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:8px;text-align:center}</style></head><body><h2 style="text-align:center">استدعاء للحراسة - ${teacher.name}</h2><table><thead><tr><th>التاريخ</th><th>ال��ترة</th><th>القاعة</th></tr></thead><tbody>`);
+    win.document.write(`<html><head><meta charset="utf-8"><title>استدعاء - ${teacher.name}</title><style>body{font-family:Tahoma;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:8px;text-align:center}</style></head><body><h2 style="text-align:center">استدعاء للحراسة - ${teacher.name}</h2><table><thead><tr><th>التاريخ</th><th>الفترة</th><th>القاعة</th></tr></thead><tbody>`);
     teacher.assignments.sort((a,b)=> new Date(a.date)-new Date(b.date) || (a.period==='صباح'? -1:1)).forEach(a=>{
         const day = examDays.find(d=>d.date===a.date && d.period===a.period);
         const display = day ? day.displayDate : formatDateForDisplay(a.date);
@@ -1846,16 +2000,79 @@ function printOfficialExamReport(date, period) {
     win.document.write(officialHeaderHTML('محضر سير الاختبارات'));
 
     win.document.write(`<div class="meta"><strong>التاريخ:</strong> ${displayDate} — <strong>الفترة:</strong> ${period}</div>`);
+win.document.write(`<h3 style="margin-top:14px">توزيع الحراسة</h3>
+<table><thead><tr>
+    <th style="width:10%">القاعة</th>
+    <th style="width:25%">المادة / المواد</th>
+    <th style="width:20%">عدد المترشحين</th> <!-- العمود الفارغ للكتابة اليدوية -->
+    <th style="width:22.5%">الحارس 1</th>
+    <th style="width:22.5%">الإمضاء </th>
+</tr></thead><tbody>`);
 
-    win.document.write(`<h3 style="margin-top:14px">توزيع الحراسة</h3>
-    <table><thead><tr><th>القاعة</th><th>المادة</th><th>الحارس 1</th><th>الحارس 2</th></tr></thead><tbody>`);
-    scheduleForPeriod.forEach(s=>{
-        const names = s.professors.map(p=>p.name||'').slice(0,2);
-        win.document.write(`<tr><td>${s.room}</td><td>${s.subject}</td><td>${names[0] || ''}</td><td>${names[1] || ''}</td></tr>`);
+// تجميع البيانات حسب القاعة لدمج المواد
+const roomMap = new Map();
+
+scheduleForPeriod.forEach(s => {
+    if (!roomMap.has(s.room)) {
+        roomMap.set(s.room, {
+            room: s.room,
+            subjects: new Set([s.subject]),
+            professors: s.professors || []
+        });
+    } else {
+        if (s.subject) roomMap.get(s.room).subjects.add(s.subject);
+    }
+});
+
+// رسم الصفوف مع ترك خانة العدد فارغة
+roomMap.forEach(data => {
+    const names = data.professors.map(p => p.name || '').slice(0, 2);
+    const allSubjects = Array.from(data.subjects).filter(sub => sub).join(' + ');
+
+    win.document.write(`
+        <tr>
+            <td>${data.room}</td>
+            <td style="font-weight:bold">${allSubjects || '---'}</td>
+            <td style="height:35px"></td> <!-- خلية فارغة بارتفاع مناسب للكتابة بالقلم -->
+            <td>${names[0] || ''}</td>
+            <td>${names[1] || ''}</td>
+        </tr>
+    `);
+});
+  win.document.write(`</tbody></table>`);
+// إضافة عنوان لجدول غيابات التغلاميذ
+win.document.write(`<h3 style="margin-top:16px">غيابات التلاميذ</h3>`);
+
+// تصفية غيابات التلاميذ بناءً على التاريخ والفترة المختارة
+const studentAbsencesForPeriod = studentAbsences.filter(a => a.date === date && a.period === period);
+
+if (studentAbsencesForPeriod.length === 0) {
+    // رسالة في حال عدم وجود غيابات
+    win.document.write(`<p>لا توجد غيابات مسجلة للتلاميذ في هذه الفترة.</p>`);
+} else {
+    // بناء الجدول في حال وجود غيابات
+    win.document.write(`<table><thead><tr><th>الاسم الأول</th><th>اللقب</th><th>القسم</th><th>الفترة</th></tr></thead><tbody>`);
+    
+    studentAbsencesForPeriod.forEach(abs => {
+        // البحث عن بيانات التلميذ باستخدام معرفه (ID)
+        const student = students.find(s => s.id === abs.studentId);
+        if (student) {
+            win.document.write(`
+                <tr>
+                    <td>${student.firstName || ''}</td>
+                    <td>${student.lastName || ''}</td>
+                    <td>${student.class || ''}</td>
+                    <td>${abs.period}</td>
+                </tr>
+            `);
+        }
     });
+    
     win.document.write(`</tbody></table>`);
+}
 
-    win.document.write(`<h3 style="margin-top:16px">سجل الغيابات والاستبدالات</h3>`);
+win.document.write(`</tbody></table>`);
+    win.document.write(`<h3 style="margin-top:16px">غيابات الأساتذة</h3>`);
     if (absForPeriod.length === 0) {
         win.document.write(`<p>لا توجد غيابات مسجلة لهذه الفترة.</p>`);
     } else {
@@ -1881,10 +2098,10 @@ function printAbsenceInquiry(index) {
     if (!rec) return alert('سجل غير موجود للطباعة.');
     const win = window.open('', '_blank');
     win.document.write(`
-<html><head><meta charset="utf-8"><title>استدعاء استفسار - ${rec.absentName}</title>
+<html><head><meta charset="utf-8"><title> استفسار - ${rec.absentName}</title>
 <style>body{font-family:"Times New Roman",serif;direction:rtl;margin:30px}.header{text-align:center}.table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #000;padding:6px;text-align:center}.signature{margin-top:40px;text-align:left}</style>
 </head><body>
-<div class="header"><h2>استدعاء استفسار بخصوص غياب حارس</h2></div>
+<div class="header"><h2> استفسار بخصوص غياب حارس</h2></div>
 <div><strong>إلى:</strong> ${rec.absentName}<br><strong>الموضوع:</strong> استفسار عن الغياب المؤرخ في ${formatDateForDisplay(rec.date)} - ${rec.period}</div>
 <div class="table"><table><thead><tr><th>القاعة</th><th>الفترة</th><th>البديل</th></tr></thead><tbody>`);
     if (rec.changes && rec.changes.length) rec.changes.forEach(ch=>{ const repName = rec.replacementName || 'لا يوجد'; win.document.write(`<tr><td>${ch.room}</td><td>${ch.period}</td><td>${repName}</td></tr>`); });
