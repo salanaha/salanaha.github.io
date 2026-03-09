@@ -2805,63 +2805,91 @@ function generateCorrectionScheduleAdvanced() {
     correctionSchedule = [];
 
     const periodsPerDay = morningPeriods + eveningPeriods;
-    let currentDate = new Date(start);
 
-    let remainingAssignments = [...assignments];
+    let startDate = new Date(start);
+    let endDate = new Date(end);
 
-    while (currentDate <= end && remainingAssignments.length > 0) {
+    const allPeriods = [];
 
-        const dateStr = currentDate.toISOString().split('T')[0];
+    // إنشاء كل الفترات بين البداية والنهاية
+    let tempDate = new Date(startDate);
+
+    while (tempDate <= endDate) {
+
+        const dateStr = tempDate.toISOString().split('T')[0];
 
         for (let p = 0; p < periodsPerDay; p++) {
 
             const periodType = (p < morningPeriods) ? 'صباحي' : 'مسائي';
             const periodNumber = (p < morningPeriods) ? (p + 1) : (p - morningPeriods + 1);
 
-            const busyTeachers = correctionSchedule
-                .filter(x => x.date === dateStr && x.periodNumber === periodNumber && x.periodType === periodType)
-                .map(x => x.teacherId);
-
-            const busyClasses = correctionSchedule
-                .filter(x => x.date === dateStr && x.periodNumber === periodNumber && x.periodType === periodType)
-                .map(x => x.className);
-
-            for (let i = remainingAssignments.length - 1; i >= 0; i--) {
-
-                const assignment = remainingAssignments[i];
-
-                const teacherBusy = busyTeachers.includes(assignment.teacherId);
-                const classBusy = busyClasses.includes(assignment.className);
-
-                if (!teacherBusy && !classBusy) {
-
-                    correctionSchedule.push({
-                        date: dateStr,
-                        periodType: periodType,
-                        periodNumber: periodNumber,
-                        className: assignment.className,
-                        subject: assignment.subject,
-                        teacher: assignment.teacher,
-                        teacherId: assignment.teacherId,
-                        duration: assignment.duration
-                    });
-
-                    busyTeachers.push(assignment.teacherId);
-                    busyClasses.push(assignment.className);
-
-                    remainingAssignments.splice(i, 1);
-                }
-            }
+            allPeriods.push({
+                date: dateStr,
+                periodType: periodType,
+                periodNumber: periodNumber
+            });
         }
 
-        currentDate.setDate(currentDate.getDate() + 1);
+        tempDate.setDate(tempDate.getDate() + 1);
+    }
+
+    let periodIndex = 0;
+
+    for (const assignment of assignments) {
+
+        let placed = false;
+
+        while (!placed && periodIndex < allPeriods.length) {
+
+            const period = allPeriods[periodIndex];
+
+            const teacherBusy = correctionSchedule.some(
+                x => x.date === period.date &&
+                     x.periodNumber === period.periodNumber &&
+                     x.periodType === period.periodType &&
+                     x.teacherId === assignment.teacherId
+            );
+
+            const classBusy = correctionSchedule.some(
+                x => x.date === period.date &&
+                     x.periodNumber === period.periodNumber &&
+                     x.periodType === period.periodType &&
+                     x.className === assignment.className
+            );
+
+            if (!teacherBusy && !classBusy) {
+
+                correctionSchedule.push({
+                    date: period.date,
+                    periodType: period.periodType,
+                    periodNumber: period.periodNumber,
+                    className: assignment.className,
+                    subject: assignment.subject,
+                    teacher: assignment.teacher,
+                    teacherId: assignment.teacherId,
+                    duration: assignment.duration
+                });
+
+                placed = true;
+
+            } else {
+
+                periodIndex++;
+            }
+        }
+    }
+
+    if (correctionSchedule.length === 0) {
+        alert("لم يتمكن البرنامج من إنشاء الجدول ⚠️ تحقق من عدد الأيام والفترات.");
+        return;
     }
 
     saveToStorage();
     displayCorrectionSchedule();
 
     alert(`تم توليد جدول التصحيح بنجاح ✅
-عدد المهام الموزعة: ${correctionSchedule.length}`);
+عدد المهام: ${correctionSchedule.length}`);
+}
 }
 function displayCorrectionSchedule() {
     const output = document.getElementById('correctionScheduleOutput');
