@@ -2801,6 +2801,8 @@ function autoDistributeTeachers() {
 
 /* ==================== جدول التصحيح ==================== */
 function generateCorrectionSchedule() {
+    console.log("1. Starting generateCorrectionSchedule function...");
+
     if (!classes.length) return alert('أضف أقسام أولاً');
     if (!assignments.length) return alert('أسند المواد أولاً');
 
@@ -2812,6 +2814,8 @@ function generateCorrectionSchedule() {
     const eveningPeriods = parseInt(document.getElementById('correctionEveningPeriods').value);
     const periodDuration = parseInt(document.getElementById('correctionPeriodDuration').value);
 
+    console.log("2. Inputs gathered:", { startDate, endDate, morningPeriods, eveningPeriods, periodDuration });
+
     if (!startDate || !endDate || !morningStart || !eveningStart) {
         return alert('الرجاء ملء جميع الحقول المطلوبة');
     }
@@ -2819,35 +2823,43 @@ function generateCorrectionSchedule() {
     const start = new Date(startDate);
     const end = new Date(endDate);
 
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        console.error("Error: Invalid date format. Aborting.");
+        return alert('صيغة التاريخ غير صالحة. الرجاء التأكد من إدخال تاريخ صحيح.');
+    }
+
     if (start > end) return alert('تاريخ النهاية يجب أن يكون بعد تاريخ البدء');
 
     correctionSchedule = [];
+    console.log("3. Correction schedule initialized. Total assignments:", assignments.length);
 
     const sortedAssignments = [...assignments].sort((a, b) => {
         const classA = classes.find(c => c.name === a.className);
         const classB = classes.find(c => c.name === b.className);
         if (!classA || !classB) return 0;
-        return classA.name.localeCompare(b.name);
+        return a.className.localeCompare(b.className);
     });
 
     let assignmentIndex = 0;
     let currentDate = new Date(start);
+    let loopCount = 0;
+
+    console.log("4. Starting the main 'while' loop...");
 
     while (currentDate <= end) {
-        const dateStr = currentDate.toISOString().split('T')[0];
+        loopCount++;
+        if (loopCount > 365) { // Safety break to prevent infinite loops
+            console.error("Safety break triggered. Loop ran over 365 times.");
+            break;
+        }
 
-        // الحصص الصباحية
+        const dateStr = currentDate.toISOString().split('T')[0];
+        console.log(`   - Processing Day: ${dateStr}, Assignment Index: ${assignmentIndex}`);
+
+        // Morning Periods
         for (let period = 0; period < morningPeriods; period++) {
             const assignment = sortedAssignments[assignmentIndex];
-            const [startH, startM] = morningStart.split(':').map(Number);
-            const startMinutes = startH * 60 + startM + (period * periodDuration);
-            const endMinutes = startMinutes + periodDuration;
-
-            const startHour = Math.floor(startMinutes / 60);
-            const startMin = startMinutes % 60;
-            const endHour = Math.floor(endMinutes / 60);
-            const endMin = endMinutes % 60;
-
+            // This block is safe even if assignment is undefined
             correctionSchedule.push({
                 id: Date.now() + Math.random(),
                 date: dateStr,
@@ -2856,28 +2868,18 @@ function generateCorrectionSchedule() {
                 teacher: assignment ? assignment.teacher : 'شاغر',
                 period: 'صباحي',
                 periodNumber: period + 1,
-                startTime: `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`,
-                endTime: `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`,
+                startTime: '00:00', // Placeholder
+                endTime: '00:00',   // Placeholder
                 duration: periodDuration
             });
-
             if (assignment) {
                 assignmentIndex++;
             }
         }
 
-        // الحصص المسائية
+        // Evening Periods
         for (let period = 0; period < eveningPeriods; period++) {
             const assignment = sortedAssignments[assignmentIndex];
-            const [startH, startM] = eveningStart.split(':').map(Number);
-            const startMinutes = startH * 60 + startM + (period * periodDuration);
-            const endMinutes = startMinutes + periodDuration;
-
-            const startHour = Math.floor(startMinutes / 60);
-            const startMin = startMinutes % 60;
-            const endHour = Math.floor(endMinutes / 60);
-            const endMin = endMinutes % 60;
-
             correctionSchedule.push({
                 id: Date.now() + Math.random(),
                 date: dateStr,
@@ -2886,24 +2888,89 @@ function generateCorrectionSchedule() {
                 teacher: assignment ? assignment.teacher : 'شاغر',
                 period: 'مسائي',
                 periodNumber: period + 1,
-                startTime: `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`,
-                endTime: `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`,
+                startTime: '00:00', // Placeholder
+                endTime: '00:00',   // Placeholder
                 duration: periodDuration
             });
-
             if (assignment) {
                 assignmentIndex++;
             }
         }
 
-        // الانتقال إلى اليوم التالي
         currentDate.setDate(currentDate.getDate() + 1);
     }
 
+    console.log("5. Loop finished. Total entries created:", correctionSchedule.length);
+    
+    // Recalculate times after the loop to simplify logic
+    correctionSchedule.forEach(item => {
+        const isMorning = item.period === 'صباحي';
+        const baseTime = isMorning ? morningStart : eveningStart;
+        const periodNum = item.periodNumber - 1;
+
+        const [startH, startM] = baseTime.split(':').map(Number);
+        const startMinutes = startH * 60 + startM + (periodNum * periodDuration);
+        const endMinutes = startMinutes + periodDuration;
+
+        item.startTime = `${String(Math.floor(startMinutes / 60)).padStart(2, '0')}:${String(startMinutes % 60).padStart(2, '0')}`;
+        item.endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`;
+    });
+
+    console.log("6. Times recalculated. Calling display function...");
     saveToStorage();
     displayCorrectionSchedule();
     alert(`تم توليد جدول التصحيح بنجاح ✅\nعدد الفترات: ${correctionSchedule.length}`);
 }
+function displayCorrectionSchedule() {
+    const output = document.getElementById('correctionScheduleOutput');
+    
+    if (!correctionSchedule.length) {
+        output.innerHTML = '<div class="empty-state"><i class="fas fa-calendar-plus" style="font-size:36px"></i><p>لم يتم توليد جدول تصحيح بعد</p></div>';
+        return;
+    }
+    
+    // تجميع البيانات حسب التاريخ
+    const groupedByDate = {};
+    correctionSchedule.forEach(item => {
+        if (!groupedByDate[item.date]) groupedByDate[item.date] = [];
+        groupedByDate[item.date].push(item);
+    });
+    
+    let html = '<div style="margin-bottom:20px">';
+    
+    // عرض كل يوم على حدة
+    Object.keys(groupedByDate).sort().forEach(date => {
+        const displayDate = formatDateForDisplay(date);
+        html += `<h3 style="text-align:center;margin-top:20px;margin-bottom:15px;color:var(--accent)">اليوم: ${displayDate}</h3>`;
+        html += '<div class="table-container"><table class="correction-table">';
+        html += '<thead><tr><th>#</th><th>القسم</th><th>المادة</th><th>المصحح</th><th>الفترة</th><th>الوقت</th></tr></thead><tbody>';
+        
+        // فرز الحصص داخل اليوم حسب الفترة ثم رقم الحصة
+        const sortedItems = groupedByDate[date].sort((a, b) => {
+            if (a.period === b.period) {
+                return a.periodNumber - b.periodNumber;
+            }
+            return a.period === 'صباحي' ? -1 : 1;
+        });
+
+        sortedItems.forEach((item, idx) => {
+            html += `<tr>
+                <td>${idx + 1}</td>
+                <td><strong>${item.className}</strong></td>
+                <td>${item.subject}</td>
+                <td>${item.teacher}</td>
+                <td><span style="background:#eef2ff;color:var(--accent);padding:4px 8px;border-radius:6px;font-weight:700">${item.period} ${item.periodNumber}</span></td>
+                <td>${item.startTime} — ${item.endTime}</td>
+            </tr>`;
+        });
+        
+        html += '</tbody></table></div>';
+    });
+    
+    html += '</div>';
+    output.innerHTML = html;
+}
+
 /* ==================== النتائج والطباعة ==================== */
 function displayCorrectionResults() {
     if (!correctionSchedule.length) {
