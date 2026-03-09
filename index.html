@@ -2841,7 +2841,6 @@ function generateCorrectionSchedule() {
             // *** هذا هو التعديل الجوهري ***
             // نستخدم باقي القسمة (%) لضمان التوزيع الدوري
             const currentAssignment = sortedAssignments[assignmentIndex % sortedAssignments.length];
-           console.log("عدد الإسنادات:", assignments.length); 
             correctionSchedule.push({
                 date: dateStr,
                 periodType: 'صباحي',
@@ -2892,7 +2891,7 @@ function generateCorrectionSchedule() {
         delete item.assignment; // حذف الخاصية المؤقتة
         delete item.periodType; // حذف الخاصية المؤقتة
     });
-
+console.log("عدد الإسنادات:", assignments.length); 
     // 5. الحفظ والعرض
     saveToStorage();
     displayCorrectionSchedule(); // تأكد من وجود هذه الدالة
