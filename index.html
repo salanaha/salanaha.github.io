@@ -2642,7 +2642,7 @@ function loadClassSubjects() {
     
     classSubjects.forEach(subj => {
         const assigned = assignments.filter(a => a.className === classes[classIndex].name && a.subject === subj);
-        const assignedText = assigned.length ? assigned.map(a => `${a.teacher} (${a.duration}س)`).join(', ') : 'لم يتم الإسنا��';
+        const assignedText = assigned.length ? assigned.map(a => `${a.teacher} (${a.duration}س)`).join(', ') : 'لم يتم الاسناد';
         
         html += `
             <div class="assignment-row">
