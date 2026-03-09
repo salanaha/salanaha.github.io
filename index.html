@@ -2361,7 +2361,7 @@ let correctionSchedule = [];
 const subjectsByLevel = {
     'ابتدائي': ['اللغة العربية', 'التربية الإسلامية', 'الرياضيات', 'العلوم الأساسية', 'التربية المدنية', 'التربية البدنية', 'التربية الفنية', 'الأنشطة اليدوية'],
     'متوسط': ['اللغة العربية', 'اللغة الفرنسية', 'اللغة الإنجليزية', 'الرياضيات', 'العلوم الطبيعية', 'العلوم الفيزيائية', 'التاريخ والجغرافيا', 'التربية الإسلامية', 'التربية المدنية', 'التربية البدنية', 'التكنولوجيا'],
-    'ثانوي': ['اللغة العربية', 'اللغة الفرنسية', 'اللغة الإنجليزية', 'الرياضيات', 'الفيزياء', 'الكيمياء', 'علوم الطبيعة والحياة', 'التاريخ والجغرافيا', 'الفلسفة', 'التربية الإسلامية', 'التربية البدنية', 'التكنولوجيا']
+    'ثانوي': ['اللغة العربية', 'اللغة الفرن��ية', 'اللغة الإنجليزية', 'الرياضيات', 'الفيزياء', 'الكيمياء', 'علوم الطبيعة والحياة', 'التاريخ والجغرافيا', 'الفلسفة', 'التربية الإسلامية', 'التربية البدنية', 'التكنولوجيا']
 };
 
 /* ==================== التنقل في نظام التصحيح ==================== */
@@ -2800,96 +2800,102 @@ function autoDistributeTeachers() {
 }
 
 /* ==================== جدول التصحيح ==================== */
-function generateCorrectionScheduleAdvanced() {
+function generateCorrectionSchedule() {
+    // 1. التحقق من المدخلات الأساسية
+    if (!classes.length) return alert('أضف أقسام أولاً');
+    if (!assignments.length) return alert('أسند المواد أولاً');
 
+    const startDate = document.getElementById('correctionStartDate').value;
+    const endDate = document.getElementById('correctionEndDate').value;
+    const morningStart = document.getElementById('correctionMorningStart').value;
+    const eveningStart = document.getElementById('correctionEveningStart').value;
+    const morningPeriods = parseInt(document.getElementById('correctionMorningPeriods').value);
+    const eveningPeriods = parseInt(document.getElementById('correctionEveningPeriods').value);
+    const periodDuration = parseInt(document.getElementById('correctionPeriodDuration').value);
+
+    if (!startDate || !endDate || !morningStart || !eveningStart) {
+        return alert('الرجاء ملء جميع الحقول المطلوبة');
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return alert('صيغة التاريخ غير صالحة. الرجاء التأكد من إدخال تاريخ صحيح.');
+    }
+    if (start > end) return alert('تاريخ النهاية يجب أن يكون بعد تاريخ البدء');
+
+    // 2. إعداد البيانات
     correctionSchedule = [];
+    const sortedAssignments = [...assignments].sort((a, b) => a.className.localeCompare(b.className));
+    
+    let currentDate = new Date(start);
+    let assignmentIndex = 0; // مؤشر للمهمة الحالية
 
-    const periodsPerDay = morningPeriods + eveningPeriods;
+    // 3. حلقة التوزيع الرئيسية (Loop)
+    while (currentDate <= end) {
+        const dateStr = currentDate.toISOString().split('T')[0];
 
-    let startDate = new Date(start);
-    let endDate = new Date(end);
-
-    const allPeriods = [];
-
-    // إنشاء كل الفترات بين البداية والنهاية
-    let tempDate = new Date(startDate);
-
-    while (tempDate <= endDate) {
-
-        const dateStr = tempDate.toISOString().split('T')[0];
-
-        for (let p = 0; p < periodsPerDay; p++) {
-
-            const periodType = (p < morningPeriods) ? 'صباحي' : 'مسائي';
-            const periodNumber = (p < morningPeriods) ? (p + 1) : (p - morningPeriods + 1);
-
-            allPeriods.push({
+        // توزيع الحصص الصباحية
+        for (let period = 0; period < morningPeriods; period++) {
+            // *** هذا هو التعديل الجوهري ***
+            // نستخدم باقي القسمة (%) لضمان التوزيع الدوري
+            const currentAssignment = sortedAssignments[assignmentIndex % sortedAssignments.length];
+            correctionSchedule.push({
                 date: dateStr,
-                periodType: periodType,
-                periodNumber: periodNumber
+                periodType: 'صباحي',
+                periodNumber: period + 1,
+                assignment: currentAssignment
             });
+            assignmentIndex++; // زيادة المؤشر للانتقال للمهمة التالية في الدورة القادمة
         }
 
-        tempDate.setDate(tempDate.getDate() + 1);
-    }
+        // توزيع الحصص المسائية
+        for (let period = 0; period < eveningPeriods; period++) {
+            const currentAssignment = sortedAssignments[assignmentIndex % sortedAssignments.length];
 
-    let periodIndex = 0;
-
-    for (const assignment of assignments) {
-
-        let placed = false;
-
-        while (!placed && periodIndex < allPeriods.length) {
-
-            const period = allPeriods[periodIndex];
-
-            const teacherBusy = correctionSchedule.some(
-                x => x.date === period.date &&
-                     x.periodNumber === period.periodNumber &&
-                     x.periodType === period.periodType &&
-                     x.teacherId === assignment.teacherId
-            );
-
-            const classBusy = correctionSchedule.some(
-                x => x.date === period.date &&
-                     x.periodNumber === period.periodNumber &&
-                     x.periodType === period.periodType &&
-                     x.className === assignment.className
-            );
-
-            if (!teacherBusy && !classBusy) {
-
-                correctionSchedule.push({
-                    date: period.date,
-                    periodType: period.periodType,
-                    periodNumber: period.periodNumber,
-                    className: assignment.className,
-                    subject: assignment.subject,
-                    teacher: assignment.teacher,
-                    teacherId: assignment.teacherId,
-                    duration: assignment.duration
-                });
-
-                placed = true;
-
-            } else {
-
-                periodIndex++;
-            }
+            correctionSchedule.push({
+                date: dateStr,
+                periodType: 'مسائي',
+                periodNumber: period + 1,
+                assignment: currentAssignment
+            });
+            assignmentIndex++;
         }
+
+        // الانتقال إلى اليوم التالي
+        currentDate.setDate(currentDate.getDate() + 1);
     }
 
-    if (correctionSchedule.length === 0) {
-        alert("لم يتمكن البرنامج من إنشاء الجدول ⚠️ تحقق من عدد الأيام والفترات.");
-        return;
-    }
+    // 4. حساب التوقيتات وإضافة التفاصيل النهائية
+    correctionSchedule.forEach(item => {
+        const isMorning = item.periodType === 'صباحي';
+        const baseTime = isMorning ? morningStart : eveningStart;
+        const periodNum = item.periodNumber - 1;
 
+        const [startH, startM] = baseTime.split(':').map(Number);
+        const startMinutes = startH * 60 + startM + (periodNum * periodDuration);
+        const endMinutes = startMinutes + periodDuration;
+
+        // دمج كل الخصائص في الكائن النهائي
+        Object.assign(item, {
+            id: Date.now() + Math.random(),
+            className: item.assignment.className,
+            subject: item.assignment.subject,
+            teacher: item.assignment.teacher,
+            period: `${item.periodType}`, // تم التعديل هنا
+            startTime: `${String(Math.floor(startMinutes / 60)).padStart(2, '0')}:${String(startMinutes % 60).padStart(2, '0')}`,
+            endTime: `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`,
+            duration: periodDuration
+        });
+        delete item.assignment; // حذف الخاصية المؤقتة
+        delete item.periodType; // حذف الخاصية المؤقتة
+    });
+console.log("عدد الإسنادات:", assignments.length); 
+    // 5. الحفظ والعرض
     saveToStorage();
-    displayCorrectionSchedule();
-
-    alert(`تم توليد جدول التصحيح بنجاح ✅
-عدد المهام: ${correctionSchedule.length}`);
-}
+    displayCorrectionSchedule(); // تأكد من وجود هذه الدالة
+    alert(`تم توليد جدول التصحيح بنجاح ✅\nعدد الفترات الموزعة: ${correctionSchedule.length}`);
 }
 function displayCorrectionSchedule() {
     const output = document.getElementById('correctionScheduleOutput');
