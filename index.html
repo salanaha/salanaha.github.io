@@ -641,6 +641,7 @@ let examDays = [];
 let schedule = [];
 let reserves = [];
 let absences = [];
+let exemptedSubjects = {}; 
 let settings = {
     avoidSameSubject: true,
     avoidSameRoom: true,
@@ -812,7 +813,8 @@ function saveToStorage() {
       students,
 studentAbsences,
         assignments,
-        correctionSchedule
+        correctionSchedule ,
+    exemptedSubjects 
     };
     
     localStorage.setItem('supervisionData', JSON.stringify(data));
@@ -832,6 +834,7 @@ function loadFromStorage() {
         absences = data.absences || [];
       students = data.students || [];
 studentAbsences = data.studentAbsences || [];
+        exemptedSubjects = data.exemptedSubjects || {};
         settings = Object.assign(settings, data.settings || {});
         
         // إضافة بيانات التصحيح
@@ -2634,32 +2637,65 @@ function loadClassSubjects() {
         return;
     }
     
+    const className = classes[classIndex].name;
     const level = settings.educationLevel;
     if (!level) return alert('الرجاء اختيار الطور أولاً');
     
-    const classSubjects = subjectsByLevel[level] || [];
+    const allClassSubjects = subjectsByLevel[level] || [];
+    
+    // جلب قائمة المواد المعفاة لهذا القسم، أو إنشاء قائمة فارغة
+    const classExemptions = exemptedSubjects[className] || [];
+    
+    // تصفية المواد: عرض المواد غير المعفاة فقط
+    const activeSubjects = allClassSubjects.filter(subj => !classExemptions.includes(subj));
+    const exemptedSubjectsList = allClassSubjects.filter(subj => classExemptions.includes(subj));
+
     let html = '<div style="margin-bottom:16px">';
     
-    classSubjects.forEach(subj => {
-        const assigned = assignments.filter(a => a.className === classes[classIndex].name && a.subject === subj);
-        const assignedText = assigned.length ? assigned.map(a => `${a.teacher} (${a.duration}س)`).join(', ') : 'لم يتم الاسناد';
-        
-        html += `
-            <div class="assignment-row">
-                <div><strong>${subj}</strong></div>
-                <div><small>${assignedText}</small></div>
-                <div>
-                    <button class="btn btn-info" onclick="assignTeacherToSubject('${subj}', '${classes[classIndex].name}')" style="padding:6px 10px;font-size:0.85rem">إسناد</button>
-                </div>
-            </div>
-        `;
-    });
-    
+    // عرض المواد النشطة
+    html += '<h4>المواد النشطة للتصحيح</h4>';
+    if (activeSubjects.length > 0) {
+        activeSubjects.forEach(subj => {
+            const assignment = assignments.find(a => a.className === className && a.subject === subj);
+            html += `
+                <div class="assignment-row" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border: 1px solid #eef2ff; border-radius: 10px; margin-bottom: 10px; background: white;">
+                    <div style="font-weight:bold; font-size: 1.1rem; color: var(--accent);">${subj}</div>
+                    <div style="display: flex; align-items: center; gap: 12px;">`;
+            
+            if (assignment) {
+                html += `<span class="small-note">المصحح: <strong>${assignment.teacher}</strong></span>
+                         <button class="btn btn-warning" style="padding: 6px 10px;" onclick="assignTeacherToSubject('${subj}', '${className}', ${assignment.id})"><i class="fas fa-edit"></i></button>`;
+            } else {
+                html += `<button class="btn btn-info" style="padding: 6px 10px;" onclick="assignTeacherToSubject('${subj}', '${className}')"><i class="fas fa-plus"></i> إسناد</button>`;
+            }
+            
+            html += `<button class="btn btn-danger" style="padding: 6px 10px;" onclick="exemptSubjectFromClass('${subj}', '${className}')"><i class="fas fa-times"></i> إعفاء</button>
+                    </div>
+                </div>`;
+        });
+    } else {
+        html += '<p class="small-note">لا توجد مواد نشطة. قد تكون جميع المواد معفاة.</p>';
+    }
+
+    // قسم المواد المعفاة (مخفي مبدئيًا)
+    html += `<hr style="margin: 20px 0;">
+             <h4>المواد المعفاة من التصحيح</h4>`;
+    if (exemptedSubjectsList.length > 0) {
+        exemptedSubjectsList.forEach(subj => {
+            html += `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: #f1f5f9; border-radius: 8px; margin-bottom: 8px;">
+                    <span>${subj}</span>
+                    <button class="btn btn-success" style="padding: 6px 10px;" onclick="reinstateSubjectForClass('${subj}', '${className}')"><i class="fas fa-undo"></i> استرجاع</button>
+                </div>`;
+        });
+    } else {
+        html += '<p class="small-note">لا توجد مواد معفاة حاليًا.</p>';
+    }
+
     html += '</div>';
     document.getElementById('assignmentsList').innerHTML = html;
     document.getElementById('assignmentsContainer').style.display = 'block';
 }
-
 function assignTeacherToSubject(subject, className) {
     const teacherOptions = teachers.map(t => `<option value="${t.id}|${t.name}">${t.name} — ${t.subject}</option>`).join('');
     
@@ -2707,6 +2743,36 @@ function assignTeacherToSubject(subject, className) {
 
 function addNewAssignment() {
     alert('استخدم الزر "إسناد" بجانب كل مادة');
+}
+function exemptSubjectFromClass(subject, className) {
+    if (!confirm(`هل أنت متأكد من إعفاء مادة "${subject}" من التصحيح لهذا القسم؟`)) return;
+
+    // التأكد من وجود قائمة إعفاءات للقسم
+    if (!exemptedSubjects[className]) {
+        exemptedSubjects[className] = [];
+    }
+
+    // إضافة المادة إلى قائمة الإعفاء إذا لم تكن موجودة
+    if (!exemptedSubjects[className].includes(subject)) {
+        exemptedSubjects[className].push(subject);
+    }
+
+    // حذف أي إسناد قديم لهذه المادة (اختياري لكنه جيد للنظافة)
+    assignments = assignments.filter(a => !(a.className === className && a.subject === subject));
+
+    saveToStorage();
+    loadClassSubjects(); // تحديث الواجهة فوراً
+}
+
+function reinstateSubjectForClass(subject, className) {
+    // التأكد من وجود قائمة إعفاءات
+    if (exemptedSubjects[className]) {
+        // إزالة المادة من قائمة الإعفاء
+        exemptedSubjects[className] = exemptedSubjects[className].filter(s => s !== subject);
+        
+        saveToStorage();
+        loadClassSubjects(); // تحديث الواجهة فوراً
+    }
 }
 
 function autoDistributeTeachers() {
