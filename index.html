@@ -2801,8 +2801,7 @@ function autoDistributeTeachers() {
 
 /* ==================== جدول التصحيح ==================== */
 function generateCorrectionSchedule() {
-    console.log("1. Starting generateCorrectionSchedule function...");
-
+    // 1. التحقق من المدخلات الأساسية
     if (!classes.length) return alert('أضف أقسام أولاً');
     if (!assignments.length) return alert('أسند المواد أولاً');
 
@@ -2814,8 +2813,6 @@ function generateCorrectionSchedule() {
     const eveningPeriods = parseInt(document.getElementById('correctionEveningPeriods').value);
     const periodDuration = parseInt(document.getElementById('correctionPeriodDuration').value);
 
-    console.log("2. Inputs gathered:", { startDate, endDate, morningPeriods, eveningPeriods, periodDuration });
-
     if (!startDate || !endDate || !morningStart || !eveningStart) {
         return alert('الرجاء ملء جميع الحقول المطلوبة');
     }
@@ -2824,87 +2821,56 @@ function generateCorrectionSchedule() {
     const end = new Date(endDate);
 
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-        console.error("Error: Invalid date format. Aborting.");
         return alert('صيغة التاريخ غير صالحة. الرجاء التأكد من إدخال تاريخ صحيح.');
     }
-
     if (start > end) return alert('تاريخ النهاية يجب أن يكون بعد تاريخ البدء');
 
+    // 2. إعداد البيانات
     correctionSchedule = [];
-    console.log("3. Correction schedule initialized. Total assignments:", assignments.length);
-
-    const sortedAssignments = [...assignments].sort((a, b) => {
-        const classA = classes.find(c => c.name === a.className);
-        const classB = classes.find(c => c.name === b.className);
-        if (!classA || !classB) return 0;
-        return a.className.localeCompare(b.className);
-    });
-
-    let assignmentIndex = 0;
+    const sortedAssignments = [...assignments].sort((a, b) => a.className.localeCompare(b.className));
+    
     let currentDate = new Date(start);
-    let loopCount = 0;
+    let assignmentIndex = 0; // مؤشر للمهمة الحالية
 
-    console.log("4. Starting the main 'while' loop...");
-
+    // 3. حلقة التوزيع الرئيسية (Loop)
     while (currentDate <= end) {
-        loopCount++;
-        if (loopCount > 365) { // Safety break to prevent infinite loops
-            console.error("Safety break triggered. Loop ran over 365 times.");
-            break;
-        }
-
         const dateStr = currentDate.toISOString().split('T')[0];
-        console.log(`   - Processing Day: ${dateStr}, Assignment Index: ${assignmentIndex}`);
 
-        // Morning Periods
+        // توزيع الحصص الصباحية
         for (let period = 0; period < morningPeriods; period++) {
-            const assignment = sortedAssignments[assignmentIndex];
-            // This block is safe even if assignment is undefined
+            // *** هذا هو التعديل الجوهري ***
+            // نستخدم باقي القسمة (%) لضمان التوزيع الدوري
+            const currentAssignment = sortedAssignments[assignmentIndex % sortedAssignments.length];
+            
             correctionSchedule.push({
-                id: Date.now() + Math.random(),
                 date: dateStr,
-                className: assignment ? assignment.className : '---',
-                subject: assignment ? assignment.subject : '---',
-                teacher: assignment ? assignment.teacher : 'شاغر',
-                period: 'صباحي',
+                periodType: 'صباحي',
                 periodNumber: period + 1,
-                startTime: '00:00', // Placeholder
-                endTime: '00:00',   // Placeholder
-                duration: periodDuration
+                assignment: currentAssignment
             });
-            if (assignment) {
-                assignmentIndex++;
-            }
+            assignmentIndex++; // زيادة المؤشر للانتقال للمهمة التالية في الدورة القادمة
         }
 
-        // Evening Periods
+        // توزيع الحصص المسائية
         for (let period = 0; period < eveningPeriods; period++) {
-            const assignment = sortedAssignments[assignmentIndex];
+            const currentAssignment = sortedAssignments[assignmentIndex % sortedAssignments.length];
+
             correctionSchedule.push({
-                id: Date.now() + Math.random(),
                 date: dateStr,
-                className: assignment ? assignment.className : '---',
-                subject: assignment ? assignment.subject : '---',
-                teacher: assignment ? assignment.teacher : 'شاغر',
-                period: 'مسائي',
+                periodType: 'مسائي',
                 periodNumber: period + 1,
-                startTime: '00:00', // Placeholder
-                endTime: '00:00',   // Placeholder
-                duration: periodDuration
+                assignment: currentAssignment
             });
-            if (assignment) {
-                assignmentIndex++;
-            }
+            assignmentIndex++;
         }
 
+        // الانتقال إلى اليوم التالي
         currentDate.setDate(currentDate.getDate() + 1);
     }
 
-    console.log("5. Loop finished. Total entries created:", correctionSchedule.length);
-    
-    // Recalculate times after the loop to simplify logic
+    // 4. حساب التوقيتات وإضافة التفاصيل النهائية
     correctionSchedule.forEach(item => {
-        const isMorning = item.period === 'صباحي';
+        const isMorning = item.periodType === 'صباحي';
         const baseTime = isMorning ? morningStart : eveningStart;
         const periodNum = item.periodNumber - 1;
 
@@ -2912,14 +2878,25 @@ function generateCorrectionSchedule() {
         const startMinutes = startH * 60 + startM + (periodNum * periodDuration);
         const endMinutes = startMinutes + periodDuration;
 
-        item.startTime = `${String(Math.floor(startMinutes / 60)).padStart(2, '0')}:${String(startMinutes % 60).padStart(2, '0')}`;
-        item.endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`;
+        // دمج كل الخصائص في الكائن النهائي
+        Object.assign(item, {
+            id: Date.now() + Math.random(),
+            className: item.assignment.className,
+            subject: item.assignment.subject,
+            teacher: item.assignment.teacher,
+            period: `${item.periodType}`, // تم التعديل هنا
+            startTime: `${String(Math.floor(startMinutes / 60)).padStart(2, '0')}:${String(startMinutes % 60).padStart(2, '0')}`,
+            endTime: `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`,
+            duration: periodDuration
+        });
+        delete item.assignment; // حذف الخاصية المؤقتة
+        delete item.periodType; // حذف الخاصية المؤقتة
     });
 
-    console.log("6. Times recalculated. Calling display function...");
+    // 5. الحفظ والعرض
     saveToStorage();
-    displayCorrectionSchedule();
-    alert(`تم توليد جدول التصحيح بنجاح ✅\nعدد الفترات: ${correctionSchedule.length}`);
+    displayCorrectionSchedule(); // تأكد من وجود هذه الدالة
+    alert(`تم توليد جدول التصحيح بنجاح ✅\nعدد الفترات الموزعة: ${correctionSchedule.length}`);
 }
 function displayCorrectionSchedule() {
     const output = document.getElementById('correctionScheduleOutput');
