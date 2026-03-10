@@ -3280,15 +3280,14 @@ function printClassCorrectionSchedule(className) {
 }
 function printIndividualCorrectionCalls() {
     if (!correctionSchedule.length) return alert('لا يوجد جدول تصحيح');
-    
+
     const groupedByTeacher = {};
     correctionSchedule.forEach(item => {
         if (!groupedByTeacher[item.teacher]) groupedByTeacher[item.teacher] = [];
         groupedByTeacher[item.teacher].push(item);
     });
-    
+
     const win = window.open('', '_blank');
-  win.document.write(officialHeaderHTML('  '));
     win.document.write(`<html><head><meta charset="utf-8"><title>استدعاءات التصحيح</title>
         <style>
             body{font-family:Tahoma;direction:rtl}
@@ -3300,20 +3299,24 @@ function printIndividualCorrectionCalls() {
         </style>
         </head><body>
     `);
-    
+
     Object.keys(groupedByTeacher).forEach(teacher => {
         win.document.write(`
             <div class="call">
                 <h3>استدعاء تصحيح</h3>
                 <p style="font-size:16px"><strong>المصحح:</strong> ${teacher}</p>
                 <table>
-                    <thead><tr><th>القسم</th><th>المادة</th><th>الوقت</th><th>المدة</th></tr></thead>
+                    <thead><tr><th>التاريخ</th><th>القسم</th><th>المادة</th><th>الوقت</th><th>المدة</th></tr></thead>
                     <tbody>
         `);
-        
+
         groupedByTeacher[teacher].forEach(item => {
+            // --- السطر المضاف هنا ---
+            const displayDate = formatDateForDisplay(item.date); // استخدام دالة تنسيق التاريخ
+
             win.document.write(`
                 <tr>
+                    <td>${displayDate}</td>
                     <td>${item.className}</td>
                     <td>${item.subject}</td>
                     <td>${item.startTime} — ${item.endTime}</td>
@@ -3321,7 +3324,7 @@ function printIndividualCorrectionCalls() {
                 </tr>
             `);
         });
-        
+
         win.document.write(`
                     </tbody>
                 </table>
@@ -3329,11 +3332,12 @@ function printIndividualCorrectionCalls() {
             </div>
         `);
     });
-    
+
     win.document.write(`</body></html>`);
     win.document.close();
-    win.print();
+    printWindow(win); // استخدام دالة الطباعة الموحدة
 }
+
 /* === دالة المودال لإعدادات الطباعة (تفتح المودال الحالي وتخزن القيم في settings) === */
 function showPrintSettingsModal() {
     // تهيئة القيم الحالية لحقول المودال
