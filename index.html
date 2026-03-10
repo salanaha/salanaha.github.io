@@ -2703,13 +2703,13 @@ function assignTeacherToSubject(subject, className) {
     document.getElementById('modalBody').innerHTML = `
         <div class="form-group">
             <label>المصحح</label>
-            <select id="modalTeacher"><option value="">-- اختر معلم --</option>${teacherOptions}</select>
+            <select id="modalTeacher"><option value="">-- اختر أستاذ --</option>${teacherOptions}</select>
         </div>
         <div class="form-group">
             <label>المدة</label>
             <select id="modalDuration">
-                <option value="1">ساعة واحدة</option>
-                <option value="2">ساعتان</option>
+                <option value="1">حصة واحدة</option>
+                <option value="2">حصتان</option>
             </select>
         </div>
     `;
@@ -2719,7 +2719,7 @@ function assignTeacherToSubject(subject, className) {
         const teacher = document.getElementById('modalTeacher').value;
         const duration = document.getElementById('modalDuration').value;
         
-        if (!teacher) return alert('الرجاء اختيار معلم');
+        if (!teacher) return alert('الرجاء اختيار أستاذ');
         
         const [teacherId, teacherName] = teacher.split('|');
         
